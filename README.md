@@ -1,17 +1,14 @@
 > [!Note]
-> OpenScreen is now archived and no longer maintained. For continued maintenance and development, a community-driven spin-off led by one of the core contributors is available here: https://github.com/EtienneLescot/openscreen
-
-
-> [!WARNING]
-> This started as a side project that blew up; not production grade and you'll hit bugs, but hopefully it covers what you need. **This project will soon be archived.**
-
-
+> OpenScreen is now archived and no longer maintained. if you are looking for something similar, checkout : https://github.com/getopenscreen/openscreen maintained by some folks, nice enough to continue this project in their own way.
+> 
 <p align="center">
   <img src="public/openscreen.png" alt="OpenScreen Logo" width="64" />
   <br />
   <br />
 	<a href="https://trendshift.io/repositories/17427" target="_blank"><img src="https://trendshift.io/api/badge/repositories/17427" alt="siddharthvaddem%2Fopenscreen | Trendshift" style="width: 256px; height: 64px;" width="256" height="64"/></a>
-
+	<p align="center">
+ <a href="https://www.star-history.com/siddharthvaddem/openscreen"><img src="https://api.star-history.com/badge?repo=siddharthvaddem/openscreen&type=rank&theme=dark" alt="Star History Rank" /></a>
+</p>
 
   </a>
 </p>
@@ -26,8 +23,15 @@ Screen Studio is an awesome product and this is definitely not a 1:1 clone. If y
 
 **100% free** for both **personal** and **commercial** use. Use it, modify it, distribute it. Please respect the License. 
 
+
 > [!NOTE]
 >Software should be accessible. OpenScreen has no paid tiers, premium features, upsells, or functionality locked behind a paywall.
+
+
+> [!WARNING]
+> This started as a side project that blew up; not production grade and you'll hit bugs, but hopefully it covers what you need.
+
+
 
 <p align="center">
 	<img src="public/demo.png" alt="" style="height: 0.2467; margin-right: 12px;" />
