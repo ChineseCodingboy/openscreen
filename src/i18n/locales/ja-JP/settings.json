@@ -8,7 +8,8 @@
 			"title": "フォーカスモード",
 			"manual": "手動",
 			"auto": "自動",
-			"autoDescription": "表示範囲が録画中のカーソル位置に追従します"
+			"autoDescription": "表示範囲が録画中のカーソル位置に追従します",
+			"lockedDisclaimer": "タイムラインのグローバル自動フォーカスで制御されています。ズームごとにフォーカスモードを設定するにはオフにしてください。"
 		},
 		"threeD": {
 			"title": "3D回転",
@@ -68,7 +69,10 @@
 		"uploadCustom": "カスタム画像を読み込む",
 		"gradientLabel": "グラデーション {{index}}",
 		"colorWheel": "カラーホイール",
-		"colorPalette": "カラーパレット"
+		"colorPalette": "カラーパレット",
+		"withBackground": "背景あり",
+		"noBackground": "背景なし",
+		"noBackgroundDescription": "録画映像のみを画面いっぱいに表示し、書き出し結果はプレビューと一致します。"
 	},
 	"crop": {
 		"title": "クロップ",
@@ -92,7 +96,8 @@
 		"title": "書き出し解像度",
 		"low": "720p",
 		"medium": "1080p",
-		"high": "Source"
+		"high": "Original",
+		"source": "Source"
 	},
 	"gifSettings": {
 		"frameRate": "GIF フレームレート",
@@ -108,11 +113,6 @@
 		"videoButton": "動画をエクスポート",
 		"gifButton": "GIF をエクスポート",
 		"chooseSaveLocation": "保存場所を選択"
-	},
-	"support": {
-		"reportBug": "バグを報告",
-		"saveDiagnostics": "診断情報を保存",
-		"starOnGithub": "GitHub でスターを付ける"
 	},
 	"imageUpload": {
 		"invalidFileType": "無効なファイル形式",
@@ -216,7 +216,10 @@
 		"smoothing": "スムージング",
 		"motionBlur": "モーションブラー",
 		"clickBounce": "クリックバウンス",
-		"clipToBounds": "キャンバスにクリップ"
+		"clipToBounds": "キャンバスにクリップ",
+		"smartMotion": "スマートモーション",
+		"smartMotionDescription": "重要な停止点と操作点だけを残し、意図しない寄り道や戻りを滑らかな直線移動に整えます。",
+		"clipToBoundsDescription": "カーソルを映像フレーム内に収めます。オフにするとカーソルが端からはみ出せるようになり、ズームやパン時に便利です。"
 	},
 	"language": {
 		"title": "言語"

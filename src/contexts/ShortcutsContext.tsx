@@ -57,8 +57,18 @@ export function ShortcutsProvider({ children }: { children: ReactNode }) {
 			const configToSave = config ?? shortcuts;
 			await window.electronAPI.saveShortcuts?.(configToSave);
 
-			const result = await window.electronAPI.updateGlobalShortcut?.(configToSave.openApp);
-			return result ? result.success : true;
+			const openAppResult = await window.electronAPI.updateGlobalShortcut?.(
+				configToSave.openApp,
+				"openApp",
+			);
+			const summonHudResult = await window.electronAPI.updateGlobalShortcut?.(
+				configToSave.summonHud,
+				"summonHud",
+			);
+			return (
+				(openAppResult ? openAppResult.success : true) &&
+				(summonHudResult ? summonHudResult.success : true)
+			);
 		},
 		[shortcuts],
 	);

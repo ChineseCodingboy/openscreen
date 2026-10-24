@@ -9,7 +9,8 @@
 		"openVideoFile": "Apri file video",
 		"openProject": "Apri progetto",
 		"useVerticalTray": "Usa barra verticale",
-		"useHorizontalTray": "Usa barra orizzontale"
+		"useHorizontalTray": "Usa barra orizzontale",
+		"openStudio": "Apri lo studio"
 	},
 	"audio": {
 		"enableSystemAudio": "Abilita audio di sistema",
@@ -34,7 +35,11 @@
 		"loading": "Caricamento sorgenti...",
 		"screens": "Schermi ({{count}})",
 		"windows": "Finestre ({{count}})",
-		"defaultSourceName": "Schermo"
+		"defaultSourceName": "Schermo",
+		"emptyTitle": "Nessuno schermo o finestra trovati",
+		"emptyDescription": "Se hai appena concesso il permesso di registrazione dello schermo, ricarica questo selettore. Su macOS potrebbe essere necessario riaprire OpenScreen.",
+		"loadFailedDescription": "OpenScreen non è riuscito a caricare le sorgenti di cattura. Ricarica questo selettore e riprova.",
+		"otherSpace": "Altro spazio / Schermo intero"
 	},
 	"recording": {
 		"selectSource": "Seleziona una sorgente da registrare"

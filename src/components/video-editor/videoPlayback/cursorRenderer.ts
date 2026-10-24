@@ -325,28 +325,53 @@ function findLatestSample(samples: CursorTelemetryPoint[], timeMs: number) {
 	return samples[lo]?.timeMs <= timeMs ? samples[lo] : null;
 }
 
-function findLatestInteractionSample(samples: CursorTelemetryPoint[], timeMs: number) {
-	for (let index = samples.length - 1; index >= 0; index -= 1) {
-		const sample = samples[index];
-		if (sample.timeMs > timeMs) {
-			continue;
-		}
-
-		if (
-			sample.interactionType === "click" ||
-			sample.interactionType === "double-click" ||
-			sample.interactionType === "right-click" ||
-			sample.interactionType === "middle-click"
-		) {
-			return sample;
-		}
-	}
-
-	return null;
+function isClickSample(sample: CursorTelemetryPoint) {
+	return (
+		sample.interactionType === "click" ||
+		sample.interactionType === "double-click" ||
+		sample.interactionType === "right-click" ||
+		sample.interactionType === "middle-click"
+	);
 }
 
-function findLatestStableCursorType(samples: CursorTelemetryPoint[], timeMs: number) {
-	// Binary search to position at timeMs, then scan backwards
+interface CursorLookupIndex {
+	sourceLength: number;
+	lastSourceSample: CursorTelemetryPoint | undefined;
+	clickSamples: CursorTelemetryPoint[];
+	stableTypeSamples: CursorTelemetryPoint[];
+}
+
+const cursorLookupIndexCache = new WeakMap<CursorTelemetryPoint[], CursorLookupIndex>();
+
+function getCursorLookupIndex(samples: CursorTelemetryPoint[]) {
+	const cached = cursorLookupIndexCache.get(samples);
+	if (
+		cached &&
+		cached.sourceLength === samples.length &&
+		cached.lastSourceSample === samples[samples.length - 1]
+	) {
+		return cached;
+	}
+
+	const index: CursorLookupIndex = {
+		sourceLength: samples.length,
+		lastSourceSample: samples[samples.length - 1],
+		clickSamples: [],
+		stableTypeSamples: [],
+	};
+	for (const sample of samples) {
+		if (isClickSample(sample)) {
+			index.clickSamples.push(sample);
+		} else if (sample.cursorType) {
+			index.stableTypeSamples.push(sample);
+		}
+	}
+	cursorLookupIndexCache.set(samples, index);
+	return index;
+}
+
+function findLatestIndexedSample(samples: CursorTelemetryPoint[], timeMs: number) {
+	if (samples.length === 0 || samples[0].timeMs > timeMs) return null;
 	let lo = 0;
 	let hi = samples.length - 1;
 	while (lo < hi) {
@@ -357,47 +382,29 @@ function findLatestStableCursorType(samples: CursorTelemetryPoint[], timeMs: num
 			hi = mid - 1;
 		}
 	}
+	return samples[lo] ?? null;
+}
 
-	// Scan back for a sample with cursorType. Skip click events (not mouseup) to
-	// avoid a transient re-type during clicks.
-	for (let index = lo; index >= 0; index -= 1) {
-		const sample = samples[index];
-		if (sample.timeMs > timeMs) {
-			continue;
-		}
+function findLatestInteractionSample(samples: CursorTelemetryPoint[], timeMs: number) {
+	return findLatestIndexedSample(getCursorLookupIndex(samples).clickSamples, timeMs);
+}
 
-		if (!sample.cursorType) {
-			continue;
-		}
-
-		if (
-			sample.interactionType === "click" ||
-			sample.interactionType === "double-click" ||
-			sample.interactionType === "right-click" ||
-			sample.interactionType === "middle-click"
-		) {
-			continue;
-		}
-
-		return sample.cursorType;
-	}
-
-	return findLatestSample(samples, timeMs)?.cursorType ?? "arrow";
+function findLatestStableCursorType(samples: CursorTelemetryPoint[], timeMs: number) {
+	const stableSample = findLatestIndexedSample(
+		getCursorLookupIndex(samples).stableTypeSamples,
+		timeMs,
+	);
+	return stableSample?.cursorType ?? findLatestSample(samples, timeMs)?.cursorType ?? "arrow";
 }
 
 function getCursorViewportScale(viewport: CursorViewportRect) {
 	return Math.max(MIN_CURSOR_VIEWPORT_SCALE, viewport.width / REFERENCE_WIDTH);
 }
 
-function getCursorVisualState(samples: CursorTelemetryPoint[], timeMs: number) {
+export function getCursorVisualState(samples: CursorTelemetryPoint[], timeMs: number) {
 	const latestClick = findLatestInteractionSample(samples, timeMs);
-	const interactionType = latestClick?.interactionType;
 	const ageMs = latestClick ? Math.max(0, timeMs - latestClick.timeMs) : Number.POSITIVE_INFINITY;
-	const isClickEvent =
-		interactionType === "click" ||
-		interactionType === "double-click" ||
-		interactionType === "right-click" ||
-		interactionType === "middle-click";
+	const isClickEvent = latestClick ? isClickSample(latestClick) : false;
 	const clickBounceProgress =
 		latestClick && isClickEvent && ageMs <= CLICK_ANIMATION_MS ? 1 - ageMs / CLICK_ANIMATION_MS : 0;
 

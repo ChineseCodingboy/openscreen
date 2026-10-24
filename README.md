@@ -161,7 +161,7 @@ Everything in the editor and export is the same on macOS, Windows, and Linux: zo
 - **Custom cursors**: on macOS and Windows the real cursor is captured (shape, type, and clicks), which powers the cursor themes, click effects, and editable cursor overlay. On Linux only the cursor position is captured (used for auto-zoom), so those cursor options aren't available.
 - **Webcam**: captured natively on macOS and Windows; on Linux it's recorded through the browser, but still works as a picture-in-picture overlay.
 - **System audio** support varies by OS:
-  - **macOS**: requires macOS 13+. On macOS 14.2+ you'll be prompted to grant audio capture permission. macOS 12 and below can't capture system audio (mic still works).
+  - **macOS**: requires macOS 15+. Screen, system audio, and microphone recording use the native ScreenCaptureKit recording output.
   - **Windows**: works out of the box.
   - **Linux**: needs PipeWire (default on Ubuntu 22.04+, Fedora 34+). Older PulseAudio-only setups may not capture system audio (mic should still work).
 

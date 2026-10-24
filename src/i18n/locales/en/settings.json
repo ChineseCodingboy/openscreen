@@ -69,7 +69,10 @@
 		"uploadCustom": "Upload Custom",
 		"gradientLabel": "Gradient {{index}}",
 		"colorWheel": "Color Wheel",
-		"colorPalette": "Color Palette"
+		"colorPalette": "Color Palette",
+		"withBackground": "Background",
+		"noBackground": "No background",
+		"noBackgroundDescription": "Show only the recording edge-to-edge. The export will match the preview."
 	},
 	"crop": {
 		"title": "Crop",
@@ -93,7 +96,8 @@
 		"title": "Export resolution",
 		"low": "720p",
 		"medium": "1080p",
-		"high": "Source"
+		"high": "Original",
+		"source": "Source"
 	},
 	"gifSettings": {
 		"frameRate": "GIF Frame Rate",
@@ -109,11 +113,6 @@
 		"videoButton": "Export Video",
 		"gifButton": "Export GIF",
 		"chooseSaveLocation": "Choose Save Location"
-	},
-	"support": {
-		"reportBug": "Report Bug",
-		"saveDiagnostics": "Save Diagnostics",
-		"starOnGithub": "Star on GitHub"
 	},
 	"imageUpload": {
 		"invalidFileType": "Invalid file type",
@@ -218,6 +217,8 @@
 		"motionBlur": "Motion Blur",
 		"clickBounce": "Click Bounce",
 		"clipToBounds": "Clip to Canvas",
+		"smartMotion": "Smart motion",
+		"smartMotionDescription": "Keeps only meaningful cursor stops and replaces accidental detours with a smooth direct path.",
 		"clipToBoundsDescription": "Keeps the cursor inside the video frame. Turn off to let the cursor extend past the edges - useful when zoomed in or panned."
 	},
 	"language": {

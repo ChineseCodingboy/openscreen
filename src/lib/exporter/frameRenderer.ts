@@ -41,6 +41,7 @@ import {
 	computeZoomTransform,
 	createMotionBlurState,
 	type MotionBlurState,
+	mapSourceFocusToStage,
 } from "@/components/video-editor/videoPlayback/zoomTransform";
 import {
 	computeCompositeLayout,
@@ -49,7 +50,7 @@ import {
 	type Size,
 	type StyledRenderRect,
 } from "@/lib/compositeLayout";
-import { getSmoothedCursorPath } from "@/lib/cursor/cursorPathSmoothing";
+import { getSmoothedCursorPath, type SmoothedCursorPath } from "@/lib/cursor/cursorPathSmoothing";
 import {
 	createNativeCursorMotionBlurState,
 	getNativeCursorClickBounceProgress,
@@ -60,6 +61,7 @@ import {
 	resolveInterpolatedNativeCursorFrame,
 	resolveNativeCursorRenderAsset,
 } from "@/lib/cursor/nativeCursor";
+import { getSemanticCursorPath, type SemanticCursorPath } from "@/lib/cursor/semanticCursorPath";
 import { BackgroundLoadError, classifyWallpaper, resolveImageWallpaperUrl } from "@/lib/wallpaper";
 import { drawCanvasClipPath } from "@/lib/webcamMaskShapes";
 import type { CursorRecordingData } from "@/native/contracts";
@@ -77,6 +79,7 @@ interface FrameRenderConfig {
 	width: number;
 	height: number;
 	wallpaper: string;
+	backgroundMode?: "wallpaper" | "none";
 	zoomRegions: ZoomRegion[];
 	showShadow: boolean;
 	shadowIntensity: number;
@@ -88,6 +91,7 @@ interface FrameRenderConfig {
 	cursorRecordingData?: CursorRecordingData | null;
 	cursorScale?: number;
 	cursorSmoothing?: number;
+	smartCursorEnabled?: boolean;
 	cursorMotionBlur?: number;
 	cursorClickBounce?: number;
 	cursorClipToBounds?: boolean;
@@ -108,6 +112,13 @@ interface FrameRenderConfig {
 	cursorTelemetry?: import("@/components/video-editor/types").CursorTelemetryPoint[];
 	cursorClickTimestamps?: number[];
 	platform: string;
+}
+
+export function resolveFrameRenderTimes(timelineTimestampUs: number, cursorTimestampUs?: number) {
+	return {
+		timelineTimeMs: timelineTimestampUs / 1000,
+		cursorTimeMs: (cursorTimestampUs ?? timelineTimestampUs) / 1000,
+	};
 }
 
 interface AnimationState {
@@ -164,10 +175,22 @@ export class FrameRenderer {
 	private zoomSpringState = createZoomSpringState();
 	private prevTargetProgress = 0;
 	private isLinux = false;
+	private nativeCursorPath: SmoothedCursorPath | null = null;
+	private semanticCursorPath: SemanticCursorPath | null = null;
+	private sampleSemanticCameraFocus = (timeMs: number) => {
+		const sample = this.semanticCursorPath?.cameraSampleAt(timeMs);
+		return sample ? { cx: sample.cx, cy: sample.cy } : null;
+	};
 
 	constructor(config: FrameRenderConfig) {
 		this.config = config;
 		this.isLinux = config.platform === "linux";
+		this.semanticCursorPath = config.smartCursorEnabled
+			? getSemanticCursorPath(config.cursorRecordingData, config.cursorSmoothing)
+			: null;
+		this.nativeCursorPath =
+			this.semanticCursorPath ??
+			getSmoothedCursorPath(config.cursorRecordingData, config.cursorSmoothing ?? 0);
 		this.animationState = {
 			scale: 1,
 			focusX: DEFAULT_FOCUS.cx,
@@ -279,6 +302,9 @@ export class FrameRenderer {
 	}
 
 	private async setupBackground(): Promise<void> {
+		if (this.config.backgroundMode === "none") {
+			return;
+		}
 		const wallpaper = this.config.wallpaper;
 
 		const bgCanvas = document.createElement("canvas");
@@ -373,14 +399,19 @@ export class FrameRenderer {
 
 	async renderFrame(
 		videoFrame: VideoFrame,
-		timestamp: number,
+		timelineTimestampUs: number,
 		webcamFrame?: VideoFrame | null,
+		cursorTimestampUs?: number,
 	): Promise<void> {
 		if (!this.app || !this.videoContainer || !this.cameraContainer) {
 			throw new Error("Renderer not initialized");
 		}
 
-		this.currentVideoTime = timestamp / 1000000;
+		const { timelineTimeMs, cursorTimeMs } = resolveFrameRenderTimes(
+			timelineTimestampUs,
+			cursorTimestampUs,
+		);
+		this.currentVideoTime = timelineTimeMs / 1000;
 
 		if (!this.videoSprite) {
 			const texture = Texture.from(videoFrame as unknown as TextureSourceLike);
@@ -396,12 +427,12 @@ export class FrameRenderer {
 
 		this.updateLayout(webcamFrame);
 
-		const timeMs = this.currentVideoTime * 1000;
+		const timeMs = timelineTimeMs;
 		const TICKS_PER_FRAME = 1;
 
 		let maxMotionIntensity = 0;
 		for (let i = 0; i < TICKS_PER_FRAME; i++) {
-			const motionIntensity = this.updateAnimationState(timeMs);
+			const motionIntensity = this.updateAnimationState(timeMs, cursorTimeMs);
 			maxMotionIntensity = Math.max(maxMotionIntensity, motionIntensity);
 		}
 
@@ -445,7 +476,7 @@ export class FrameRenderer {
 		const willRotate = !isRotation3DIdentity(this.currentRotation3D);
 		this.compositeWithShadows(webcamFrame, !willRotate);
 
-		await this.drawNativeCursor(timeMs);
+		await this.drawNativeCursor(cursorTimeMs);
 
 		// Annotations go on top of foreground so they rotate with the recording
 		if (
@@ -522,6 +553,32 @@ export class FrameRenderer {
 		}
 	}
 
+	async renderBackgroundFrame(timestamp: number): Promise<void> {
+		if (!this.compositeCanvas || !this.compositeCtx) {
+			throw new Error("Renderer not initialized");
+		}
+		this.currentVideoTime = timestamp / 1_000_000;
+		const ctx = this.compositeCtx;
+		const width = this.compositeCanvas.width;
+		const height = this.compositeCanvas.height;
+		ctx.clearRect(0, 0, width, height);
+		if (this.backgroundSprite) {
+			ctx.drawImage(this.backgroundSprite, 0, 0, width, height);
+		}
+		if (this.config.annotationRegions?.length) {
+			const previewWidth = this.config.previewWidth ?? width;
+			const previewHeight = this.config.previewHeight ?? height;
+			await renderAnnotations(
+				ctx,
+				this.config.annotationRegions,
+				width,
+				height,
+				this.currentVideoTime * 1000,
+				(width / previewWidth + height / previewHeight) / 2,
+			);
+		}
+	}
+
 	// Video's on-screen boundary including the zoom camera transform. The PIXI mask
 	// lives inside cameraContainer, so during zoom the visible video extends beyond
 	// the static maskRect and a static clip would crop it. Mirrors the preview.
@@ -563,10 +620,7 @@ export class FrameRenderer {
 		}
 		// Position comes from the precomputed smoothed path (deterministic, matches preview);
 		// the frame still supplies the cursor image, type, and click timing.
-		const smoothedPos = getSmoothedCursorPath(
-			this.config.cursorRecordingData,
-			this.config.cursorSmoothing ?? 0,
-		)?.sampleAt(timeMs);
+		const smoothedPos = this.nativeCursorPath?.sampleAt(timeMs);
 		const displaySample = smoothedPos
 			? { ...activeNativeCursor.sample, cx: smoothedPos.cx, cy: smoothedPos.cy }
 			: activeNativeCursor.sample;
@@ -766,13 +820,22 @@ export class FrameRenderer {
 		};
 	}
 
-	private updateAnimationState(timeMs: number): number {
+	private updateAnimationState(timeMs: number, cursorTimeMs = timeMs): number {
 		if (!this.cameraContainer || !this.layoutCache) return 0;
 
 		const { region, strength, blendedScale, rotation3D, transition } = findDominantRegion(
 			this.config.zoomRegions,
 			timeMs,
-			{ connectZooms: true, cursorTelemetry: this.config.cursorTelemetry },
+			{
+				connectZooms: true,
+				cursorTelemetry: this.config.cursorTelemetry,
+				cursorFocusSampler:
+					this.config.smartCursorEnabled && this.semanticCursorPath
+						? this.sampleSemanticCameraFocus
+						: undefined,
+				cursorFocusSamplerKey: this.semanticCursorPath,
+				cursorTimeMs,
+			},
 		);
 
 		const defaultFocus = DEFAULT_FOCUS;
@@ -787,7 +850,20 @@ export class FrameRenderer {
 
 		if (region && strength > 0) {
 			const zoomScale = blendedScale ?? getZoomScale(region);
-			const regionFocus = clampFocusToScale(region.focus, zoomScale);
+			const rawRegionFocus =
+				region.focusSpace === "source"
+					? mapSourceFocusToStage({
+							focus: region.focus,
+							stageSize: this.layoutCache.stageSize,
+							baseOffset: this.layoutCache.baseOffset,
+							sourceSize: {
+								width: this.config.videoWidth,
+								height: this.config.videoHeight,
+							},
+							baseScale: this.layoutCache.baseScale,
+						})
+					: region.focus;
+			const regionFocus = clampFocusToScale(rawRegionFocus, zoomScale);
 
 			targetScaleFactor = zoomScale;
 			targetFocus = regionFocus;
@@ -854,6 +930,9 @@ export class FrameRenderer {
 					x: interpolatedTransform.x,
 					y: interpolatedTransform.y,
 				});
+				if (region.focusMode === "auto") {
+					this.smoothedAutoFocus = targetFocus;
+				}
 				targetProgress = 1;
 			}
 		}
@@ -882,10 +961,21 @@ export class FrameRenderer {
 		// at the steep start of the ease. Stepped by content time; snapped on the first frame or
 		// any large time jump.
 		const dtMs = this.prevAnimationTimeMs != null ? timeMs - this.prevAnimationTimeMs : 0;
+		const synchronizedAutoZoomIn =
+			region?.source === "auto" &&
+			region.focusMode === "auto" &&
+			Number.isFinite(region.zoomInDurationMs) &&
+			timeMs >= region.startMs &&
+			timeMs <= region.startMs + Math.max(1, region.zoomInDurationMs ?? 1);
 		let appliedScale: number;
 		let appliedX: number;
 		let appliedY: number;
-		if (this.prevAnimationTimeMs == null || dtMs <= 0 || dtMs > 80) {
+		if (
+			this.prevAnimationTimeMs == null ||
+			region?.motionProfile === "professional-v2" ||
+			synchronizedAutoZoomIn ||
+			dtMs <= 0
+		) {
 			resetZoomSpring(this.zoomSpringState, projectedTransform);
 			appliedScale = projectedTransform.scale;
 			appliedX = projectedTransform.x;

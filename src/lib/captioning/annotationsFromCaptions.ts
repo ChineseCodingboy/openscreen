@@ -1,4 +1,5 @@
 import type { AnnotationRegion, AnnotationTextStyle } from "@/components/video-editor/types";
+import { isCjkChar, joinWords } from "@/lib/cjkText";
 
 import type { CaptionSegment } from "./transcribe";
 
@@ -183,6 +184,25 @@ export function reconcileAutoCaptionTimelineGaps(
 	return regions.map((r) => fixedById.get(r.id) ?? r);
 }
 
+/**
+ * Keep exactly one generated caption set while preserving unrelated manual annotations.
+ * All auto-caption clips share a z-index so they behave as one visual subtitle track.
+ */
+export function replaceAutoCaptionRegions(
+	existing: AnnotationRegion[],
+	generated: AnnotationRegion[],
+): AnnotationRegion[] {
+	const captionTrackZIndex = generated[0]?.zIndex;
+	const singleTrackCaptions =
+		captionTrackZIndex === undefined
+			? generated
+			: generated.map((region) => ({ ...region, zIndex: captionTrackZIndex }));
+	return [
+		...existing.filter((region) => region.annotationSource !== "auto-caption"),
+		...singleTrackCaptions,
+	];
+}
+
 /** Join phrases that are close in time so the editor does not create dozens of separate overlays. */
 export function mergeAdjacentCaptionSegments(
 	segments: CaptionSegment[],
@@ -269,15 +289,151 @@ function partitionPhraseCaptionSegments(
 }
 
 export interface CaptionSegmentLayoutOptions {
-	/** Lower bound on words per on-screen caption (default 2). */
+	/** Optional manual lower bound. When omitted, layout adapts to speech and text width. */
 	minWordsPerCaption?: number;
-	/** Upper bound on words per on-screen caption (default 7). */
+	/** Optional manual upper bound. When omitted, layout adapts to speech and text width. */
 	maxWordsPerCaption?: number;
 	/**
 	 * `word`: each `CaptionSegment` is a single token with Whisper word timestamps (default).
 	 * `phrase`: merged phrase spans; use proportional line splitting inside each span.
 	 */
 	timestampGranularity?: "word" | "phrase";
+}
+
+const ADAPTIVE_MAX_VISUAL_UNITS = 30;
+const ADAPTIVE_MIN_VISUAL_UNITS = 8;
+const ADAPTIVE_MIN_DURATION_SEC = 0.72;
+const ADAPTIVE_MAX_DURATION_SEC = 3.2;
+const ADAPTIVE_HARD_PAUSE_SEC = 0.42;
+const ADAPTIVE_SOFT_PAUSE_SEC = 0.2;
+const STRONG_CAPTION_END = /[.!?。！？]$/u;
+const SOFT_CAPTION_END = /[,;:，、；：]$/u;
+const LEFT_ATTACHING_PUNCTUATION = /^[,.;:!?，。！？、；：…]$/u;
+
+function captionVisualUnits(text: string) {
+	let units = 0;
+	for (const char of Array.from(text.trim())) {
+		if (/\s/u.test(char)) units += 0.35;
+		else if (isCjkChar(char)) units += LEFT_ATTACHING_PUNCTUATION.test(char) ? 0.8 : 2;
+		else if (/\p{Letter}|\p{Number}/u.test(char)) units += 1;
+		else units += 0.7;
+	}
+	return units;
+}
+
+function tokenizePhraseForAdaptiveLayout(text: string) {
+	const tokens: string[] = [];
+	let latinBuffer = "";
+	const flushLatin = () => {
+		const value = latinBuffer.trim();
+		if (value) tokens.push(value);
+		latinBuffer = "";
+	};
+	for (const char of Array.from(text.trim())) {
+		if (/\s/u.test(char)) {
+			flushLatin();
+			continue;
+		}
+		if (isCjkChar(char)) {
+			flushLatin();
+			if (LEFT_ATTACHING_PUNCTUATION.test(char) && tokens.length > 0) {
+				tokens[tokens.length - 1] += char;
+			} else {
+				tokens.push(char);
+			}
+			continue;
+		}
+		if (LEFT_ATTACHING_PUNCTUATION.test(char)) {
+			flushLatin();
+			if (tokens.length > 0) tokens[tokens.length - 1] += char;
+			else tokens.push(char);
+			continue;
+		}
+		latinBuffer += char;
+	}
+	flushLatin();
+	return tokens;
+}
+
+function expandPhraseSegmentToAdaptiveTokens(segment: CaptionSegment): CaptionSegment[] {
+	const tokens = tokenizePhraseForAdaptiveLayout(segment.text);
+	if (tokens.length <= 1)
+		return segment.text.trim() ? [{ ...segment, text: segment.text.trim() }] : [];
+	return splitOneSegmentByWordBounds(segment.startSec, segment.endSec, tokens, 1, 1);
+}
+
+/**
+ * Creates readable caption beats without exposing word-count controls. Boundaries follow pauses and
+ * punctuation, while visual width and reading duration prevent lines becoming too dense or too rapid.
+ */
+export function groupCaptionSegmentsAdaptively(
+	segments: CaptionSegment[],
+	granularity: "word" | "phrase" = "word",
+): CaptionSegment[] {
+	const tokens = (
+		granularity === "phrase" ? segments.flatMap(expandPhraseSegmentToAdaptiveTokens) : segments
+	)
+		.filter((segment) => segment.text.trim())
+		.sort((left, right) => left.startSec - right.startSec || left.endSec - right.endSec);
+	if (tokens.length === 0) return [];
+
+	const out: CaptionSegment[] = [];
+	let current: CaptionSegment[] = [];
+	const flush = () => {
+		if (current.length === 0) return;
+		out.push({
+			startSec: current[0]!.startSec,
+			endSec: Math.max(current[0]!.startSec + WORD_SPLIT_MIN_SPAN_SEC, current.at(-1)!.endSec),
+			text: joinWords(current.map((segment) => segment.text.trim())),
+		});
+		current = [];
+	};
+
+	for (let index = 0; index < tokens.length; index++) {
+		const token = tokens[index]!;
+		const previous = current.at(-1);
+		const currentText = joinWords(current.map((segment) => segment.text.trim()));
+		const nextText = joinWords([
+			...current.map((segment) => segment.text.trim()),
+			token.text.trim(),
+		]);
+		const gapBefore = previous ? token.startSec - previous.endSec : 0;
+		const nextDuration = current.length > 0 ? token.endSec - current[0]!.startSec : 0;
+
+		if (
+			current.length > 0 &&
+			(gapBefore >= ADAPTIVE_HARD_PAUSE_SEC ||
+				(captionVisualUnits(nextText) > ADAPTIVE_MAX_VISUAL_UNITS &&
+					captionVisualUnits(currentText) >= ADAPTIVE_MIN_VISUAL_UNITS) ||
+				(nextDuration > ADAPTIVE_MAX_DURATION_SEC &&
+					previous!.endSec - current[0]!.startSec >= ADAPTIVE_MIN_DURATION_SEC))
+		) {
+			flush();
+		}
+
+		current.push(token);
+		const text = joinWords(current.map((segment) => segment.text.trim()));
+		const duration = current.at(-1)!.endSec - current[0]!.startSec;
+		const next = tokens[index + 1];
+		const gapAfter = next ? next.startSec - token.endSec : Number.POSITIVE_INFINITY;
+		const enoughToRead =
+			duration >= ADAPTIVE_MIN_DURATION_SEC ||
+			captionVisualUnits(text) >= ADAPTIVE_MIN_VISUAL_UNITS;
+		if (
+			!next ||
+			gapAfter >= ADAPTIVE_HARD_PAUSE_SEC ||
+			(enoughToRead && STRONG_CAPTION_END.test(text)) ||
+			(enoughToRead && gapAfter >= ADAPTIVE_SOFT_PAUSE_SEC) ||
+			(duration >= 1.1 && SOFT_CAPTION_END.test(text)) ||
+			captionVisualUnits(text) >= ADAPTIVE_MAX_VISUAL_UNITS ||
+			duration >= ADAPTIVE_MAX_DURATION_SEC
+		) {
+			flush();
+		}
+	}
+
+	flush();
+	return out;
 }
 
 function computeCaptionLineIndexRanges(
@@ -349,7 +505,7 @@ export function groupTimedCaptionWordsIntoLines(
 			out.push({
 				startSec: s,
 				endSec: e,
-				text: slice.map((w) => w.text.trim()).join(" "),
+				text: joinWords(slice.map((w) => w.text.trim())),
 			});
 		}
 	};
@@ -397,7 +553,7 @@ export function splitMergedCaptionsByWordBounds(
 			out.push({
 				startSec: seg.startSec,
 				endSec: seg.endSec,
-				text: words.join(" "),
+				text: joinWords(words),
 			});
 			continue;
 		}
@@ -414,7 +570,7 @@ function wrapCaptionTextByWordBounds(text: string, minWords: number, maxWords: n
 	const minW = Math.max(1, Math.min(Math.floor(minWords), Math.floor(maxWords)));
 	const maxW = Math.max(minW, Math.floor(maxWords));
 	const ranges = computeCaptionLineIndexRanges(words.length, minW, maxW);
-	return ranges.map(({ from, to }) => words.slice(from, to).join(" ")).join("\n");
+	return ranges.map(({ from, to }) => joinWords(words.slice(from, to))).join("\n");
 }
 
 function expandPhraseSegmentToPseudoWords(segment: CaptionSegment): CaptionSegment[] {
@@ -457,7 +613,7 @@ export function groupPhraseCaptionSegmentsIntoLines(
 				out.push({
 					startSec: only.startSec,
 					endSec: only.endSec,
-					text: lineTexts.join(" "),
+					text: joinWords(lineTexts),
 				});
 				continue;
 			}
@@ -527,7 +683,7 @@ function splitOneSegmentByWordBounds(
 		result.push({
 			startSec: s,
 			endSec: e,
-			text: words.slice(from, to).join(" "),
+			text: joinWords(words.slice(from, to)),
 		});
 	}
 	if (result.length > 0) {
@@ -549,20 +705,23 @@ export function captionSegmentsToAnnotationRegions(
 ): { regions: AnnotationRegion[]; nextNumericId: number; nextZIndex: number } {
 	// Don't echo-collapse raw word tokens before grouping: repeated words ("I … I") share a
 	// normalized key and would merge spans while keeping only the first token's text.
+	const granularity = layout?.timestampGranularity ?? "word";
+	const usesManualWordBounds =
+		layout?.minWordsPerCaption !== undefined || layout?.maxWordsPerCaption !== undefined;
 	const minW = layout?.minWordsPerCaption ?? 2;
 	const maxW = layout?.maxWordsPerCaption ?? 7;
-	const granularity = layout?.timestampGranularity ?? "word";
 
-	const grouped =
-		granularity === "phrase"
+	const grouped = usesManualWordBounds
+		? granularity === "phrase"
 			? groupPhraseCaptionSegmentsIntoLines(segments, minW, maxW)
-			: groupTimedCaptionWordsIntoLines(segments, minW, maxW);
+			: groupTimedCaptionWordsIntoLines(segments, minW, maxW)
+		: groupCaptionSegmentsAdaptively(segments, granularity);
 
 	const dedupedOut = dedupeAdjacentCaptionRepeats(grouped);
 	const finalized = finalizeCaptionSegmentsForPlayback(dedupedOut);
 
 	let nid = startNumericId;
-	let z = startZIndex;
+	const captionTrackZIndex = startZIndex;
 	const regions: AnnotationRegion[] = [];
 
 	for (const seg of finalized) {
@@ -578,14 +737,14 @@ export function captionSegmentsToAnnotationRegions(
 			position: { ...CAPTION_POSITION },
 			size: { ...CAPTION_SIZE },
 			style: { ...CAPTION_STYLE },
-			zIndex: z++,
+			zIndex: captionTrackZIndex,
 		});
 	}
 
 	return {
 		regions: reconcileAutoCaptionTimelineGaps(regions),
 		nextNumericId: nid,
-		nextZIndex: z,
+		nextZIndex: regions.length > 0 ? captionTrackZIndex + 1 : startZIndex,
 	};
 }
 

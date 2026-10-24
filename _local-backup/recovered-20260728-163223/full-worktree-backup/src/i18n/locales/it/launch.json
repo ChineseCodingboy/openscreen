@@ -1,0 +1,54 @@
+{
+	"tooltips": {
+		"hideHUD": "Nascondi",
+		"closeApp": "Chiudi app",
+		"restartRecording": "Riavvia registrazione",
+		"cancelRecording": "Annulla registrazione",
+		"pauseRecording": "Metti in pausa registrazione",
+		"resumeRecording": "Riprendi registrazione",
+		"openVideoFile": "Apri file video",
+		"openProject": "Apri progetto",
+		"useVerticalTray": "Usa barra verticale",
+		"useHorizontalTray": "Usa barra orizzontale",
+		"openStudio": "Apri lo studio"
+	},
+	"audio": {
+		"enableSystemAudio": "Abilita audio di sistema",
+		"disableSystemAudio": "Disabilita audio di sistema",
+		"enableMicrophone": "Abilita microfono",
+		"disableMicrophone": "Disabilita microfono",
+		"defaultMicrophone": "Microfono predefinito"
+	},
+	"webcam": {
+		"enableWebcam": "Abilita webcam",
+		"disableWebcam": "Disabilita webcam",
+		"defaultCamera": "Fotocamera predefinita",
+		"searching": "Ricerca in corso...",
+		"noneFound": "Nessuna fotocamera trovata",
+		"unavailable": "Fotocamera non disponibile"
+	},
+	"cursor": {
+		"useEditableCursor": "Usa cursore modificabile",
+		"useSystemCursor": "Usa cursore di sistema"
+	},
+	"sourceSelector": {
+		"loading": "Caricamento sorgenti...",
+		"screens": "Schermi ({{count}})",
+		"windows": "Finestre ({{count}})",
+		"defaultSourceName": "Schermo",
+		"emptyTitle": "Nessuno schermo o finestra trovati",
+		"emptyDescription": "Se hai appena concesso il permesso di registrazione dello schermo, ricarica questo selettore. Su macOS potrebbe essere necessario riaprire OpenScreen.",
+		"loadFailedDescription": "OpenScreen non è riuscito a caricare le sorgenti di cattura. Ricarica questo selettore e riprova.",
+		"otherSpace": "Altro spazio / Schermo intero"
+	},
+	"recording": {
+		"selectSource": "Seleziona una sorgente da registrare"
+	},
+	"language": "Lingua",
+	"systemLanguagePrompt": {
+		"title": "Usare la lingua del sistema?",
+		"description": "Abbiamo rilevato {{language}} come lingua del sistema. Vuoi passare OpenScreen a {{language}}?",
+		"switch": "Passa a {{language}}",
+		"keepDefault": "Mantieni la lingua corrente"
+	}
+}

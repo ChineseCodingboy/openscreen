@@ -16,6 +16,7 @@
 	"registrationFailed": "Kısayol kaydedilemedi. Başka bir uygulama tarafından kullanılıyor olabilir. Farklı bir tuş deneyin.",
 	"actions": {
 		"openApp": "Uygulamayı Aç",
+		"summonHud": "Kayıt çubuğunu göster",
 		"addZoom": "Yakınlaştırma Ekle",
 		"addTrim": "Kırpma Ekle",
 		"addSpeed": "Hız Ekle",
@@ -31,8 +32,6 @@
 		"cycleAnnotationsForward": "Açıklamalar Arasında İleri Geç",
 		"cycleAnnotationsBackward": "Açıklamalar Arasında Geri Geç",
 		"deleteSelectedAlt": "Seçileni Sil (alternatif)",
-		"panTimeline": "Zaman Çizelgesini Kaydır",
-		"zoomTimeline": "Zaman Çizelgesini Yakınlaştır",
 		"frameBack": "Önceki Kare",
 		"frameForward": "Sonraki Kare"
 	}

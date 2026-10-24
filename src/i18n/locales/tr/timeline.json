@@ -5,7 +5,11 @@
 		"addTrim": "Kırpma Ekle (T)",
 		"addAnnotation": "Açıklama Ekle (A)",
 		"addSpeed": "Hız Ekle (S)",
-		"addBlur": "Bulanık ekle (B)"
+		"addBlur": "Bulanık ekle (B)",
+		"autoZoomOn": "Otomatik yakınlaştırma önerileri açık — önerilen yakınlaştırmaları kaldırmak için tıklayın",
+		"autoZoomOff": "Otomatik yakınlaştırma önerileri kapalı — imleçten yakınlaştırma önermek için tıklayın",
+		"autoFocusAllOn": "Tüm yakınlaştırmalarda Otomatik Odak açık — hepsini manuele almak için tıklayın",
+		"autoFocusAllOff": "Tüm yakınlaştırmalarda Otomatik Odak (kamera imleci izler)"
 	},
 	"hints": {
 		"pressZoom": "Yakınlaştırma eklemek için Z tuşuna basın",
@@ -15,8 +19,6 @@
 		"pressBlur": "Bulanık bölge eklemek için B tuşuna basın"
 	},
 	"labels": {
-		"pan": "Kaydır",
-		"zoom": "Yakınlaştır",
 		"trim": "Kırp",
 		"speed": "Hız",
 		"zoomItem": "Yakınlaştırma {{index}}",

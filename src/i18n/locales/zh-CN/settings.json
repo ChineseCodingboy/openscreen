@@ -8,7 +8,8 @@
 			"title": "对焦模式",
 			"manual": "手动",
 			"auto": "自动",
-			"autoDescription": "摄像头跟随录制时的光标位置"
+			"autoDescription": "摄像头跟随录制时的光标位置",
+			"lockedDisclaimer": "由时间轴上的全局自动跟随开关控制。关闭后才能为每个缩放单独设置跟随模式。"
 		},
 		"threeD": {
 			"title": "3D 旋转",
@@ -68,7 +69,10 @@
 		"uploadCustom": "上传自定义",
 		"gradientLabel": "渐变 {{index}}",
 		"colorWheel": "颜色轮",
-		"colorPalette": "颜色调色板"
+		"colorPalette": "颜色调色板",
+		"withBackground": "有背景",
+		"noBackground": "无背景",
+		"noBackgroundDescription": "录制画面铺满显示，导出效果与预览一致。"
 	},
 	"crop": {
 		"title": "裁剪",
@@ -92,7 +96,8 @@
 		"title": "导出分辨率",
 		"low": "720p",
 		"medium": "1080p",
-		"high": "Source"
+		"high": "原画质",
+		"source": "源文件"
 	},
 	"gifSettings": {
 		"frameRate": "GIF 帧率",
@@ -108,11 +113,6 @@
 		"videoButton": "导出视频",
 		"gifButton": "导出 GIF",
 		"chooseSaveLocation": "选择保存位置"
-	},
-	"support": {
-		"reportBug": "报告错误",
-		"saveDiagnostics": "保存诊断信息",
-		"starOnGithub": "在 GitHub 上加星"
 	},
 	"imageUpload": {
 		"invalidFileType": "无效的文件类型",
@@ -132,8 +132,6 @@
 		"textPlaceholder": "输入您的文本...",
 		"fontStyle": "字体样式",
 		"selectStyle": "选择样式",
-		"textAnimation": "文本动画",
-		"selectAnimation": "选择动画",
 		"size": "大小",
 		"customFonts": "自定义字体",
 		"textColor": "文本颜色",
@@ -207,7 +205,10 @@
 		"smoothing": "平滑",
 		"motionBlur": "运动模糊",
 		"clickBounce": "点击弹跳",
-		"clipToBounds": "裁剪到画布"
+		"clipToBounds": "裁剪到画布",
+		"smartMotion": "智慧轨迹",
+		"smartMotionDescription": "只保留关键停留和交互点，将误移、回摆与绕路整理成自然的直达轨迹。",
+		"clipToBoundsDescription": "让光标始终保持在视频画面内。关闭后光标可以超出边缘——在缩放或平移时很有用。"
 	},
 	"language": {
 		"title": "语言"
@@ -215,5 +216,16 @@
 	"timeline": {
 		"title": "时间轴",
 		"waveform": "在剪辑轨道上显示音频波形"
+	},
+	"textAnimation": {
+		"title": "文字动画",
+		"selectAnimation": "选择动画",
+		"none": "无",
+		"fade": "淡入",
+		"rise": "上升",
+		"pop": "弹出",
+		"slideLeft": "左滑入",
+		"typewriter": "打字机",
+		"pulse": "脉冲"
 	}
 }

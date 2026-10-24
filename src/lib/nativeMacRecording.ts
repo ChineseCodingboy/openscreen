@@ -11,6 +11,7 @@ export type NativeMacRecordingRequest = {
 		sourceId: string;
 		displayId?: number;
 		windowId?: number;
+		excludedWindowIds?: number[];
 		bounds?: Rectangle;
 	};
 	video: {
@@ -58,9 +59,15 @@ export type NativeMacHelperRecordingStartedEvent = {
 	timestampMs: number;
 };
 
+export type NativeMacHelperRecordingBoundaryEvent = {
+	event: "recording-paused" | "recording-resumed";
+	timestampMs: number;
+};
+
 export type NativeMacHelperRecordingStoppedEvent = {
 	event: "recording-stopped";
 	screenPath: string;
+	timestampMs?: number;
 };
 
 export type NativeMacHelperWarningEvent = {
@@ -78,6 +85,7 @@ export type NativeMacHelperErrorEvent = {
 export type NativeMacHelperEvent =
 	| NativeMacHelperReadyEvent
 	| NativeMacHelperRecordingStartedEvent
+	| NativeMacHelperRecordingBoundaryEvent
 	| NativeMacHelperRecordingStoppedEvent
 	| NativeMacHelperWarningEvent
 	| NativeMacHelperErrorEvent;
@@ -87,6 +95,14 @@ export type NativeMacRecordingStartResult = {
 	recordingId?: number;
 	path?: string;
 	helperPath?: string;
+	/** Epoch timestamp emitted when ScreenCaptureKit started the first recording output. */
+	captureStartedAtMs?: number;
+	error?: string;
+};
+
+export type NativeMacRecordingBoundaryResult = {
+	success: boolean;
+	timestampMs?: number;
 	error?: string;
 };
 

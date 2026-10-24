@@ -47,7 +47,8 @@
 	"autoCaptions": {
 		"button": "자동 자막",
 		"dialogTitle": "자동 자막",
-		"dialogDescription": "각 자막에 한 번에 표시할 단어 수의 대략적인 값을 선택하세요. 타이밍은 해당 구문의 단어들에 나뉩니다.",
+		"dialogDescription": "자막을 자연스럽고 읽기 쉬운 구문으로 자동 분할합니다.",
+		"adaptiveHint": "단어 수 설정이 필요 없습니다. 쉼, 문장 부호, 말하기 속도와 화면 글자 폭을 자동으로 조절합니다.",
 		"minWords": "자막당 최소 단어 수",
 		"maxWords": "자막당 최대 단어 수",
 		"wordsCount": "{{count}}개 단어",
@@ -63,6 +64,42 @@
 		"failed": "자막을 생성할 수 없습니다.",
 		"truncated": "처음 {{minutes}}분만 전사되었습니다."
 	},
+	"voiceover": {
+		"dialogTitle": "AI 더빙",
+		"dialogDescription": "전사된 텍스트를 깨끗하고 표준적인 목소리로 읽어 원본 오디오 트랙을 대체합니다.",
+		"tabCaptions": "자막",
+		"tabVoiceover": "AI 더빙",
+		"voice": "목소리",
+		"style": "스타일",
+		"styles": {
+			"sleek": "세련된 프리미엄",
+			"energetic": "활기찬",
+			"broadcast": "표준 아나운서",
+			"conversational": "자연스러운 대화체"
+		},
+		"polish": "AI 텍스트 다듬기(군더더기 제거)",
+		"replaceOriginal": "원본 오디오 대체(음소거)",
+		"hint": "타임라인의 자막이 곧 대본입니다. 읽을 내용을 바꾸려면 먼저 자막 텍스트를 편집하세요. 자막이 없으면 자동으로 음성을 전사합니다.",
+		"generate": "더빙 생성",
+		"regenerate": "더빙 다시 생성",
+		"remove": "더빙 제거",
+		"transcribing": "음성 전사 중…",
+		"synthesizing": "음성 합성 중 {{done}}/{{total}}…",
+		"saving": "오디오 트랙 저장 중…",
+		"done": "더빙이 타임라인에 추가되었습니다.",
+		"compressedNote": "{{count}}개 문장이 타이밍에 맞춰 약간 빨라졌습니다.",
+		"removed": "더빙을 제거하고 원본 오디오를 복원했습니다.",
+		"failed": "더빙을 생성하지 못했습니다.",
+		"busy": "더빙을 생성하는 중입니다.",
+		"quality": "음질",
+		"qualityHd": "고품질",
+		"qualityStandard": "표준(저렴)",
+		"targetLanguage": "대상 언어",
+		"sourceLanguage": "원본 언어(번역 안 함)",
+		"syncCaptions": "타임라인 자막도 번역",
+		"translating": "대본 번역 중…",
+		"hdCostHint": "고품질은 gpt-audio 계열 모델을 사용합니다(오디오 분당 약 $0.1~0.2)."
+	},
 	"emptyState": {
 		"title": "열린 프로젝트 없음",
 		"description": "동영상을 가져와 편집을 시작하거나 기존 OpenScreen 프로젝트를 불러오세요.",
@@ -77,5 +114,26 @@
 			"couldNotOpenTitle": "파일을 열 수 없음",
 			"couldNotOpenMessage": "프로젝트 파일을 열 수 없습니다. 참조된 동영상이 이동되었거나 삭제되었을 수 있습니다."
 		}
+	},
+	"background": {
+		"withBackground": "Background",
+		"noBackground": "No background",
+		"noBackgroundDescription": "Show only the recorded page edge-to-edge. Export will match the preview."
+	},
+	"mediaLibrary": {
+		"title": "Media Library",
+		"subtitle": "Your recordings and saved projects",
+		"back": "Back to editor",
+		"refresh": "Refresh",
+		"openFromComputer": "Open from computer",
+		"loading": "Loading library…",
+		"loadError": "Could not load the media library.",
+		"retry": "Try again",
+		"emptyTitle": "No recordings yet",
+		"emptyDescription": "Start a recording or open a video from your computer.",
+		"newRecording": "New recording",
+		"project": "Project",
+		"recording": "Recording",
+		"edited": "Project saved"
 	}
 }

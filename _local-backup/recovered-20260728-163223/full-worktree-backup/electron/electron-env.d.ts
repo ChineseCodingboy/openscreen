@@ -1,0 +1,409 @@
+/// <reference types="vite-plugin-electron/electron-env" />
+
+declare namespace NodeJS {
+	interface ProcessEnv {
+		/**
+		 * The built directory structure
+		 *
+		 * ```tree
+		 * ├─┬─┬ dist
+		 * │ │ └── index.html
+		 * │ │
+		 * │ ├─┬ dist-electron
+		 * │ │ ├── main.js
+		 * │ │ └── preload.js
+		 * │
+		 * ```
+		 */
+		APP_ROOT: string;
+		/** /dist/ or /public/ */
+		VITE_PUBLIC: string;
+	}
+}
+
+// Used in Renderer process, expose in `preload.ts`
+interface Window {
+	electronAPI: {
+		invokeNativeBridge: <TData = unknown>(
+			request: import("../src/native/contracts").NativeBridgeRequest,
+		) => Promise<import("../src/native/contracts").NativeBridgeResponse<TData>>;
+		getSources: (opts: Electron.SourcesOptions) => Promise<ProcessedDesktopSource[]>;
+		listNativeWindows: () => Promise<{
+			success: boolean;
+			message?: string;
+			windows?: Array<{
+				id: string;
+				windowId: number;
+				name: string;
+				appName: string;
+				title: string;
+				isOnScreen: boolean;
+				thumbnail: string | null;
+			}>;
+		}>;
+		switchToEditor: () => Promise<void>;
+		switchToHud: () => Promise<void>;
+		startNewRecording: () => Promise<{ success: boolean; error?: string }>;
+		openSourceSelector: () => Promise<{
+			opened: boolean;
+			reason?: string;
+			access?: {
+				success: boolean;
+				granted: boolean;
+				status: string;
+				error?: string;
+			};
+		}>;
+		selectSource: (source: ProcessedDesktopSource) => Promise<ProcessedDesktopSource | null>;
+		getSelectedSource: () => Promise<ProcessedDesktopSource | null>;
+		requestCameraAccess: () => Promise<{
+			success: boolean;
+			granted: boolean;
+			status: string;
+			error?: string;
+		}>;
+		requestScreenAccess: () => Promise<{
+			success: boolean;
+			granted: boolean;
+			status: string;
+			error?: string;
+		}>;
+		requestNativeMacCursorAccess: () => Promise<{
+			success: boolean;
+			granted: boolean;
+			status: string;
+			error?: string;
+		}>;
+		assetBaseUrl: string;
+		storeRecordedVideo: (
+			videoData: ArrayBuffer,
+			fileName: string,
+		) => Promise<{
+			success: boolean;
+			path?: string;
+			session?: import("../src/lib/recordingSession").RecordingSession;
+			message?: string;
+			error?: string;
+		}>;
+		storeRecordedSession: (
+			payload: import("../src/lib/recordingSession").StoreRecordedSessionInput,
+		) => Promise<{
+			success: boolean;
+			path?: string;
+			session?: import("../src/lib/recordingSession").RecordingSession;
+			message?: string;
+			error?: string;
+		}>;
+		openRecordingStream: (fileName: string) => Promise<{ success: boolean; error?: string }>;
+		appendRecordingChunk: (
+			fileName: string,
+			chunk: ArrayBuffer,
+		) => Promise<{ success: boolean; error?: string }>;
+		closeRecordingStream: (fileName: string) => Promise<{ success: boolean; error?: string }>;
+		getRecordedVideoPath: () => Promise<{
+			success: boolean;
+			path?: string;
+			message?: string;
+			error?: string;
+		}>;
+		setRecordingState: (
+			recording: boolean,
+			recordingId?: number,
+			cursorCaptureMode?: import("../src/lib/recordingSession").CursorCaptureMode,
+		) => Promise<void>;
+		isNativeWindowsCaptureAvailable: () => Promise<{
+			success: boolean;
+			available: boolean;
+			helperPath?: string;
+			reason?: string;
+			error?: string;
+		}>;
+		isNativeMacCaptureAvailable: () => Promise<{
+			success: boolean;
+			available: boolean;
+			helperPath?: string;
+			reason?: "unsupported-platform" | "missing-helper" | string;
+			error?: string;
+		}>;
+		startNativeWindowsRecording: (
+			request: import("../src/lib/nativeWindowsRecording").NativeWindowsRecordingRequest,
+		) => Promise<import("../src/lib/nativeWindowsRecording").NativeWindowsRecordingStartResult>;
+		stopNativeWindowsRecording: (discard?: boolean) => Promise<{
+			success: boolean;
+			path?: string;
+			session?: import("../src/lib/recordingSession").RecordingSession;
+			message?: string;
+			discarded?: boolean;
+			timestampMs?: number;
+			error?: string;
+		}>;
+		pauseNativeWindowsRecording: () => Promise<{
+			success: boolean;
+			timestampMs?: number;
+			error?: string;
+		}>;
+		resumeNativeWindowsRecording: () => Promise<{
+			success: boolean;
+			timestampMs?: number;
+			error?: string;
+		}>;
+		startNativeMacRecording: (
+			request: import("../src/lib/nativeMacRecording").NativeMacRecordingRequest,
+		) => Promise<import("../src/lib/nativeMacRecording").NativeMacRecordingStartResult>;
+		pauseNativeMacRecording: () => Promise<{
+			success: boolean;
+			timestampMs?: number;
+			error?: string;
+		}>;
+		resumeNativeMacRecording: () => Promise<{
+			success: boolean;
+			timestampMs?: number;
+			error?: string;
+		}>;
+		stopNativeMacRecording: (discard?: boolean) => Promise<{
+			success: boolean;
+			path?: string;
+			session?: import("../src/lib/recordingSession").RecordingSession;
+			message?: string;
+			discarded?: boolean;
+			timestampMs?: number;
+			error?: string;
+		}>;
+		attachNativeMacWebcamRecording: (payload: {
+			screenVideoPath: string;
+			recordingId: number;
+			webcam: import("../src/lib/recordingSession").RecordedVideoAssetInput;
+			webcamSync?: import("../src/lib/webcamSync").WebcamSyncMetadata;
+			cursorCaptureMode?: import("../src/lib/recordingSession").CursorCaptureMode;
+		}) => Promise<{
+			success: boolean;
+			path?: string;
+			session?: import("../src/lib/recordingSession").RecordingSession;
+			message?: string;
+			error?: string;
+		}>;
+		discardCursorTelemetry: (recordingId: number) => Promise<void>;
+		getCursorTelemetry: (videoPath?: string) => Promise<{
+			success: boolean;
+			samples: CursorTelemetryPoint[];
+			clicks: number[];
+			message?: string;
+			error?: string;
+		}>;
+		onStopRecordingFromTray: (callback: () => void) => () => void;
+		openExternalUrl: (url: string) => Promise<{ success: boolean; error?: string }>;
+		pickExportSavePath: (
+			fileName: string,
+			exportFolder?: string,
+		) => Promise<{
+			success: boolean;
+			path?: string;
+			message?: string;
+			canceled?: boolean;
+			error?: string;
+		}>;
+		writeExportToPath: (
+			videoData: ArrayBuffer,
+			filePath: string,
+		) => Promise<{
+			success: boolean;
+			path?: string;
+			message?: string;
+			error?: string;
+		}>;
+		copyExportSourceToPath: (
+			sourcePath: string,
+			filePath: string,
+		) => Promise<{
+			success: boolean;
+			path?: string;
+			message?: string;
+		}>;
+		openVideoFilePicker: () => Promise<{ success: boolean; path?: string; canceled?: boolean }>;
+		setCurrentVideoPath: (path: string) => Promise<{ success: boolean }>;
+		setCurrentRecordingSession: (
+			session: import("../src/lib/recordingSession").RecordingSession | null,
+		) => Promise<{
+			success: boolean;
+			session?: import("../src/lib/recordingSession").RecordingSession;
+		}>;
+		getCurrentVideoPath: () => Promise<{ success: boolean; path?: string }>;
+		getCurrentRecordingSession: () => Promise<{
+			success: boolean;
+			session?: import("../src/lib/recordingSession").RecordingSession;
+		}>;
+		readBinaryFile: (filePath: string) => Promise<{
+			success: boolean;
+			data?: ArrayBuffer;
+			path?: string;
+			message?: string;
+			error?: string;
+		}>;
+		createMediaSourceHandle: (filePath: string) => Promise<{
+			success: boolean;
+			id?: string;
+			url?: string;
+			size?: number;
+			mtimeMs?: number;
+			message?: string;
+		}>;
+		releaseMediaSourceHandle: (id: string) => Promise<{ success: boolean }>;
+		preparePreviewAudioTrack: (
+			filePath: string,
+			trackOrdinal?: number,
+		) => Promise<{
+			success: boolean;
+			path?: string | null;
+			message?: string;
+			error?: string;
+		}>;
+		inspectAudioTracks: (filePath: string) => Promise<{
+			success: boolean;
+			tracks?: Array<{ ordinal: number; bitRate: number }>;
+			message?: string;
+		}>;
+		getOpenAIApiKeyStatus: () => Promise<{
+			configured: boolean;
+			secureStorageAvailable: boolean;
+		}>;
+		saveOpenAIApiKey: (key: string) => Promise<{ success: boolean; message?: string }>;
+		clearOpenAIApiKey: () => Promise<{ success: boolean; message?: string }>;
+		transcribeWithOpenAIWhisper: (
+			audio: ArrayBuffer,
+			language?: string,
+		) => Promise<{
+			success: boolean;
+			code?: string;
+			message?: string;
+			data?: unknown;
+		}>;
+		synthesizeVoiceoverSpeech: (
+			text: string,
+			voice?: string,
+			instructions?: string,
+			quality?: string,
+		) => Promise<{
+			success: boolean;
+			code?: string;
+			message?: string;
+			data?: ArrayBuffer;
+			modelUsed?: string;
+		}>;
+		polishVoiceoverText: (texts: string[]) => Promise<{
+			success: boolean;
+			code?: string;
+			message?: string;
+			texts?: string[];
+		}>;
+		translateVoiceoverText: (
+			texts: string[],
+			targetLanguage: string,
+		) => Promise<{
+			success: boolean;
+			code?: string;
+			message?: string;
+			texts?: string[];
+		}>;
+		saveVoiceoverAudio: (
+			videoPath: string,
+			wavData: ArrayBuffer,
+		) => Promise<{
+			success: boolean;
+			path?: string;
+			fileUrl?: string;
+			message?: string;
+		}>;
+		clearCurrentVideoPath: () => Promise<{ success: boolean }>;
+		saveProjectFile: (
+			projectData: unknown,
+			suggestedName?: string,
+			existingProjectPath?: string,
+		) => Promise<{
+			success: boolean;
+			path?: string;
+			message?: string;
+			canceled?: boolean;
+			error?: string;
+		}>;
+		loadProjectFile: (projectFolder?: string) => Promise<{
+			success: boolean;
+			path?: string;
+			project?: unknown;
+			message?: string;
+			canceled?: boolean;
+			error?: string;
+		}>;
+		loadCurrentProjectFile: () => Promise<{
+			success: boolean;
+			path?: string;
+			project?: unknown;
+			message?: string;
+			canceled?: boolean;
+			error?: string;
+		}>;
+		getPathForFile: (file: File) => string;
+		loadProjectFileFromPath: (filePath: string) => Promise<{
+			success: boolean;
+			path?: string;
+			project?: unknown;
+			message?: string;
+			canceled?: boolean;
+			error?: string;
+		}>;
+		onMenuNewProject: (callback: () => void) => () => void;
+		onMenuImportVideo: (callback: () => void) => () => void;
+		onMenuLoadProject: (callback: () => void) => () => void;
+		onMenuSaveProject: (callback: () => void) => () => void;
+		onMenuSaveProjectAs: (callback: () => void) => () => void;
+		getPlatform: () => Promise<string>;
+		revealInFolder: (
+			filePath: string,
+		) => Promise<{ success: boolean; error?: string; message?: string }>;
+		getShortcuts: () => Promise<Record<string, unknown> | null>;
+		saveShortcuts: (shortcuts: unknown) => Promise<{ success: boolean; error?: string }>;
+		updateGlobalShortcut: (
+			binding: {
+				key: string;
+				ctrl?: boolean;
+				shift?: boolean;
+				alt?: boolean;
+			},
+			action?: "openApp" | "summonHud",
+		) => Promise<{ success: boolean }>;
+		hudOverlayHide: () => void;
+		hudOverlayClose: () => void;
+		setHudOverlayIgnoreMouseEvents: (ignore: boolean) => void;
+		moveHudOverlayBy: (deltaX: number, deltaY: number) => void;
+		setHudOverlaySize: (width: number, height: number) => void;
+		showCountdownOverlay: (value: number, runId: number) => Promise<void>;
+		setCountdownOverlayValue: (value: number, runId: number) => Promise<void>;
+		hideCountdownOverlay: (runId: number) => Promise<void>;
+		onCountdownOverlayValue: (callback: (value: number | null) => void) => () => void;
+		setMicrophoneExpanded: (expanded: boolean) => void;
+		setHasUnsavedChanges: (hasChanges: boolean) => void;
+		onRequestSaveBeforeClose: (callback: () => Promise<boolean> | boolean) => () => void;
+		onRequestCloseConfirm: (callback: () => void) => () => void;
+		sendCloseConfirmResponse: (choice: "save" | "discard" | "cancel") => void;
+		setLocale: (locale: string) => Promise<void>;
+		saveDiagnostic: (payload: {
+			error: string;
+			stack?: string;
+			projectState: unknown;
+			logs: string[];
+		}) => Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }>;
+	};
+}
+
+interface ProcessedDesktopSource {
+	id: string;
+	name: string;
+	display_id: string;
+	thumbnail: string | null;
+	appIcon: string | null;
+}
+
+interface CursorTelemetryPoint {
+	timeMs: number;
+	cx: number;
+	cy: number;
+}

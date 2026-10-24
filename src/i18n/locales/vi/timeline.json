@@ -5,7 +5,11 @@
 		"addTrim": "Thêm Cắt (T)",
 		"addAnnotation": "Thêm Chú thích (A)",
 		"addBlur": "Thêm Làm mờ (B)",
-		"addSpeed": "Thêm Tốc độ (S)"
+		"addSpeed": "Thêm Tốc độ (S)",
+		"autoZoomOn": "Gợi ý thu phóng tự động đang bật — bấm để xóa các vùng thu phóng được gợi ý",
+		"autoZoomOff": "Gợi ý thu phóng tự động đang tắt — bấm để gợi ý thu phóng theo con trỏ",
+		"autoFocusAllOn": "Tự động lấy nét đang bật cho mọi vùng thu phóng — bấm để chuyển tất cả sang thủ công",
+		"autoFocusAllOff": "Tự động lấy nét mọi vùng thu phóng (camera đi theo con trỏ)"
 	},
 	"hints": {
 		"pressZoom": "Nhấn Z để thêm thu phóng",
@@ -15,8 +19,6 @@
 		"pressSpeed": "Nhấn S để thêm tốc độ"
 	},
 	"labels": {
-		"pan": "Xoay",
-		"zoom": "Thu phóng",
 		"trim": "Cắt",
 		"speed": "Tốc độ",
 		"zoomItem": "Thu phóng {{index}}",

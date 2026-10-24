@@ -23,12 +23,16 @@ export interface SmoothedCursorPath {
 const STEP_MS = 1000 / 240;
 const STEP_S = STEP_MS / 1000;
 
-interface SmoothedRun {
+export interface SerializedSmoothedCursorRun {
 	start: number;
 	end: number;
-	times: Float32Array;
-	xs: Float32Array;
-	ys: Float32Array;
+	times: Float32Array | Float64Array;
+	xs: Float32Array | Float64Array;
+	ys: Float32Array | Float64Array;
+}
+
+export interface SerializedSmoothedCursorPath {
+	runs: SerializedSmoothedCursorRun[];
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -36,7 +40,7 @@ function clamp(value: number, min: number, max: number) {
 }
 
 function binarySearchAtOrBefore(
-	times: Float32Array | number[],
+	times: Float32Array | Float64Array | number[],
 	timeMs: number,
 	hi: number,
 ): number {
@@ -56,15 +60,29 @@ function binarySearchAtOrBefore(
 }
 
 /** Linear interpolation of a sample run's position at an arbitrary time. */
-function interpolateRun(samples: CursorRecordingSample[], timeMs: number): SmoothedCursorPosition {
+function interpolateRun(
+	samples: CursorRecordingSample[],
+	timeMs: number,
+	knownIndex?: number,
+): SmoothedCursorPosition {
 	const last = samples.length - 1;
 	if (timeMs <= samples[0].timeMs) return { cx: samples[0].cx, cy: samples[0].cy };
 	if (timeMs >= samples[last].timeMs) return { cx: samples[last].cx, cy: samples[last].cy };
-	const i = binarySearchAtOrBefore(
-		samples.map((s) => s.timeMs),
-		timeMs,
-		last,
-	);
+	let i = knownIndex;
+	if (i === undefined) {
+		let low = 0;
+		let high = last;
+		i = 0;
+		while (low <= high) {
+			const mid = low + ((high - low) >> 1);
+			if (samples[mid].timeMs <= timeMs) {
+				i = mid;
+				low = mid + 1;
+			} else {
+				high = mid - 1;
+			}
+		}
+	}
 	const a = samples[i];
 	const b = samples[i + 1] ?? a;
 	const span = b.timeMs - a.timeMs;
@@ -118,7 +136,7 @@ function buildSmoothedRun(
 	stiffness: number,
 	damping: number,
 	mass: number,
-): SmoothedRun {
+): SerializedSmoothedCursorRun {
 	const start = samples[0].timeMs;
 	const end = samples[samples.length - 1].timeMs;
 	const stepCount = Math.max(1, Math.round((end - start) / STEP_MS));
@@ -126,10 +144,16 @@ function buildSmoothedRun(
 	const times = new Float32Array(n);
 	const rawX = new Float32Array(n);
 	const rawY = new Float32Array(n);
+	// The target times are monotonic, so walk the source run once instead of allocating and
+	// searching its full time array for every 240 Hz output step.
+	let sampleIndex = 0;
 	for (let i = 0; i < n; i++) {
 		const t = i === n - 1 ? end : start + i * STEP_MS;
 		times[i] = t;
-		const p = interpolateRun(samples, t);
+		while (sampleIndex + 1 < samples.length - 1 && samples[sampleIndex + 1].timeMs <= t) {
+			sampleIndex++;
+		}
+		const p = interpolateRun(samples, t, sampleIndex);
 		rawX[i] = p.cx;
 		rawY[i] = p.cy;
 	}
@@ -145,7 +169,27 @@ function buildSmoothedRun(
 	};
 }
 
-function sampleRun(run: SmoothedRun, timeMs: number): SmoothedCursorPosition {
+function findRunAtTime<T extends { start: number; end: number }>(
+	runs: T[],
+	timeMs: number,
+): T | null {
+	let low = 0;
+	let high = runs.length - 1;
+	let candidate = -1;
+	while (low <= high) {
+		const mid = low + ((high - low) >> 1);
+		if (runs[mid].start <= timeMs) {
+			candidate = mid;
+			low = mid + 1;
+		} else {
+			high = mid - 1;
+		}
+	}
+	if (candidate < 0 || timeMs > runs[candidate].end) return null;
+	return runs[candidate];
+}
+
+function sampleRun(run: SerializedSmoothedCursorRun, timeMs: number): SmoothedCursorPosition {
 	const last = run.times.length - 1;
 	if (timeMs <= run.times[0]) return { cx: run.xs[0], cy: run.ys[0] };
 	if (timeMs >= run.times[last]) return { cx: run.xs[last], cy: run.ys[last] };
@@ -159,17 +203,54 @@ function sampleRun(run: SmoothedRun, timeMs: number): SmoothedCursorPosition {
 	};
 }
 
-/** Passthrough path (smoothing 0): raw linear interpolation, still respecting visibility gaps. */
-function buildRawPath(runs: CursorRecordingSample[][]): SmoothedCursorPath {
+export function createSmoothedCursorPath(
+	serialized: SerializedSmoothedCursorPath,
+): SmoothedCursorPath {
 	return {
 		sampleAt(timeMs) {
-			for (const run of runs) {
-				if (timeMs >= run[0].timeMs && timeMs <= run[run.length - 1].timeMs) {
-					return interpolateRun(run, timeMs);
-				}
-			}
-			return null;
+			const run = findRunAtTime(serialized.runs, timeMs);
+			return run ? sampleRun(run, timeMs) : null;
 		},
+	};
+}
+
+/** Builds a transferable representation suitable for a Web Worker. */
+export function buildSerializedSmoothedCursorPath(
+	recordingData: Pick<CursorRecordingData, "samples">,
+	smoothing01: number,
+): SerializedSmoothedCursorPath {
+	const runs = splitVisibleRuns(recordingData.samples).filter((run) => run.length > 0);
+	if (runs.length === 0) {
+		return { runs: [] };
+	}
+	if (smoothing01 <= 0) {
+		return {
+			runs: runs.map((run) => ({
+				start: run[0].timeMs,
+				end: run[run.length - 1].timeMs,
+				times: Float64Array.from(run, (sample) => sample.timeMs),
+				xs: Float64Array.from(run, (sample) => sample.cx),
+				ys: Float64Array.from(run, (sample) => sample.cy),
+			})),
+		};
+	}
+
+	// Use the slider value directly to match the live overlay's spring strength so both cursor
+	// systems lag identically (an extra multiplier here over-smoothed, causing a visible offset).
+	const config = getCursorSpringConfig(clamp(smoothing01, 0, 1));
+
+	return {
+		runs: runs.map((run) =>
+			run.length < 2
+				? {
+						start: run[0].timeMs,
+						end: run[0].timeMs,
+						times: new Float32Array([run[0].timeMs]),
+						xs: new Float32Array([run[0].cx]),
+						ys: new Float32Array([run[0].cy]),
+					}
+				: buildSmoothedRun(run, config.stiffness, config.damping, config.mass),
+		),
 	};
 }
 
@@ -177,41 +258,11 @@ function buildSmoothedPath(
 	recordingData: CursorRecordingData,
 	smoothing01: number,
 ): SmoothedCursorPath {
-	const runs = splitVisibleRuns(recordingData.samples).filter((run) => run.length > 0);
-	if (runs.length === 0) {
-		return { sampleAt: () => null };
-	}
-	if (smoothing01 <= 0) {
-		return buildRawPath(runs);
-	}
-
-	// Use the slider value directly to match the live overlay's spring strength so both cursor
-	// systems lag identically (an extra multiplier here over-smoothed, causing a visible offset).
-	const config = getCursorSpringConfig(clamp(smoothing01, 0, 1));
-
-	const smoothedRuns = runs.map((run) =>
-		run.length < 2
-			? {
-					start: run[0].timeMs,
-					end: run[0].timeMs,
-					times: new Float32Array([run[0].timeMs]),
-					xs: new Float32Array([run[0].cx]),
-					ys: new Float32Array([run[0].cy]),
-				}
-			: buildSmoothedRun(run, config.stiffness, config.damping, config.mass),
-	);
-
-	return {
-		sampleAt(timeMs) {
-			for (const run of smoothedRuns) {
-				if (timeMs >= run.start && timeMs <= run.end) return sampleRun(run, timeMs);
-			}
-			return null;
-		},
-	};
+	return createSmoothedCursorPath(buildSerializedSmoothedCursorPath(recordingData, smoothing01));
 }
 
 const pathCache = new WeakMap<CursorRecordingData, Map<string, SmoothedCursorPath>>();
+const MAX_CACHED_STRENGTHS_PER_RECORDING = 4;
 
 /**
  * Returns the smoothed cursor path for a recording at a given strength, memoized per
@@ -229,9 +280,18 @@ export function getSmoothedCursorPath(
 		pathCache.set(recordingData, byStrength);
 	}
 	let path = byStrength.get(key);
-	if (!path) {
+	if (path) {
+		// Refresh insertion order so the small map acts as an LRU while the smoothing slider moves.
+		byStrength.delete(key);
+		byStrength.set(key, path);
+	} else {
 		path = buildSmoothedPath(recordingData, Number.parseFloat(key));
 		byStrength.set(key, path);
+		while (byStrength.size > MAX_CACHED_STRENGTHS_PER_RECORDING) {
+			const oldestKey = byStrength.keys().next().value;
+			if (oldestKey === undefined) break;
+			byStrength.delete(oldestKey);
+		}
 	}
 	return path;
 }

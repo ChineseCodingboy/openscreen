@@ -1,10 +1,10 @@
 import * as SliderPrimitive from "@radix-ui/react-slider";
 import {
 	Brackets,
-	Bug,
 	Crop,
 	Download,
-	FileDown,
+	Eye,
+	EyeOff,
 	Film,
 	Image,
 	Info,
@@ -14,10 +14,11 @@ import {
 	Palette,
 	SlidersHorizontal,
 	Sparkles,
-	Star,
 	Trash2,
 	Unlock,
 	Upload,
+	Volume2,
+	VolumeX,
 	X,
 } from "lucide-react";
 import { type ComponentType, useCallback, useMemo, useRef, useState } from "react";
@@ -79,6 +80,7 @@ import type {
 	FigureData,
 	PlaybackSpeed,
 	Rotation3DPreset,
+	TimelineTrack,
 	WebcamLayoutPreset,
 	WebcamMaskShape,
 	WebcamSizePreset,
@@ -241,6 +243,8 @@ const GRADIENTS = [
 interface SettingsPanelProps {
 	selected: string;
 	onWallpaperChange: (path: string) => void;
+	backgroundMode?: "wallpaper" | "none";
+	onBackgroundModeChange?: (mode: "wallpaper" | "none") => void;
 	selectedZoomDepth?: ZoomDepth | null;
 	onZoomDepthChange?: (depth: ZoomDepth) => void;
 	selectedZoomCustomScale?: number | null;
@@ -303,6 +307,7 @@ interface SettingsPanelProps {
 	} | null;
 	onSaveUnsavedExport?: () => void;
 	selectedAnnotationId?: string | null;
+	captionTrackLabel?: string;
 	annotationRegions?: AnnotationRegion[];
 	onAnnotationContentChange?: (id: string, content: string) => void;
 	onAnnotationTypeChange?: (id: string, type: AnnotationType) => void;
@@ -331,7 +336,6 @@ interface SettingsPanelProps {
 	webcamSizePreset?: WebcamSizePreset;
 	onWebcamSizePresetChange?: (size: WebcamSizePreset) => void;
 	onWebcamSizePresetCommit?: () => void;
-	onSaveDiagnostic?: () => Promise<void>;
 	showCursor?: boolean;
 	onShowCursorChange?: (show: boolean) => void;
 	cursorSize?: number;
@@ -346,8 +350,12 @@ interface SettingsPanelProps {
 	onCursorClipToBoundsChange?: (clip: boolean) => void;
 	cursorTheme?: string;
 	onCursorThemeChange?: (theme: string) => void;
+	smartCursorEnabled?: boolean;
+	onSmartCursorEnabledChange?: (enabled: boolean) => void;
 	hasCursorData?: boolean;
 	showCursorSettings?: boolean;
+	timelineTracks?: TimelineTrack[];
+	onTimelineTrackChange?: (id: string, changes: Partial<TimelineTrack>) => void;
 }
 
 export default SettingsPanel;
@@ -383,6 +391,8 @@ function formatSourceDimensions(videoElement?: HTMLVideoElement | null, cropRegi
 export function SettingsPanel({
 	selected,
 	onWallpaperChange,
+	backgroundMode = "wallpaper",
+	onBackgroundModeChange,
 	selectedZoomDepth,
 	onZoomDepthChange,
 	selectedZoomCustomScale,
@@ -439,6 +449,7 @@ export function SettingsPanel({
 	unsavedExport,
 	onSaveUnsavedExport,
 	selectedAnnotationId,
+	captionTrackLabel,
 	annotationRegions = [],
 	onAnnotationContentChange,
 	onAnnotationTypeChange,
@@ -467,7 +478,6 @@ export function SettingsPanel({
 	webcamSizePreset = DEFAULT_WEBCAM_SETTINGS.sizePreset,
 	onWebcamSizePresetChange,
 	onWebcamSizePresetCommit,
-	onSaveDiagnostic,
 	showCursor = DEFAULT_CURSOR_SETTINGS.show,
 	onShowCursorChange,
 	cursorSize = DEFAULT_CURSOR_SETTINGS.size,
@@ -482,8 +492,12 @@ export function SettingsPanel({
 	onCursorClipToBoundsChange,
 	cursorTheme = DEFAULT_CURSOR_SETTINGS.theme,
 	onCursorThemeChange,
+	smartCursorEnabled = true,
+	onSmartCursorEnabledChange,
 	hasCursorData = false,
 	showCursorSettings = true,
+	timelineTracks = [],
+	onTimelineTrackChange,
 }: SettingsPanelProps) {
 	const t = useScopedT("settings");
 	const [activePanelMode, setActivePanelMode] = useState<SettingsPanelMode>("background");
@@ -740,43 +754,6 @@ export function SettingsPanel({
 	const selectedBlur = selectedBlurId
 		? blurRegions.find((region) => region.id === selectedBlurId)
 		: null;
-	const commonFooterLinks = (
-		<div className="flex gap-2 mt-3">
-			<button
-				type="button"
-				onClick={() => {
-					window.electronAPI?.openExternalUrl(
-						"https://github.com/siddharthvaddem/openscreen/issues/new/choose",
-					);
-				}}
-				className="flex-1 flex items-center justify-center gap-1.5 text-[10px] text-slate-500 hover:text-slate-300 py-1.5 transition-colors"
-			>
-				<Bug className="w-3 h-3 text-[#34B27B]" />
-				{t("support.reportBug")}
-			</button>
-			{onSaveDiagnostic && (
-				<button
-					type="button"
-					onClick={onSaveDiagnostic}
-					className="flex-1 flex items-center justify-center gap-1.5 text-[10px] text-slate-500 hover:text-slate-300 py-1.5 transition-colors"
-				>
-					<FileDown className="w-3 h-3 text-slate-400" />
-					{t("support.saveDiagnostics")}
-				</button>
-			)}
-			<button
-				type="button"
-				onClick={() => {
-					window.electronAPI?.openExternalUrl("https://github.com/siddharthvaddem/openscreen");
-				}}
-				className="flex-1 flex items-center justify-center gap-1.5 text-[10px] text-slate-500 hover:text-slate-300 py-1.5 transition-colors"
-			>
-				<Star className="w-3 h-3 text-yellow-400" />
-				{t("support.starOnGithub")}
-			</button>
-		</div>
-	);
-
 	// Annotation selected: show its settings panel instead.
 	if (
 		selectedAnnotation &&
@@ -790,6 +767,8 @@ export function SettingsPanel({
 				<div className="min-h-0 flex-1 overflow-hidden">
 					<AnnotationSettingsPanel
 						annotation={selectedAnnotation}
+						captionTrackMode={selectedAnnotation.annotationSource === "auto-caption"}
+						captionTrackLabel={captionTrackLabel}
 						onContentChange={(content) => onAnnotationContentChange(selectedAnnotation.id, content)}
 						onTypeChange={(type) => onAnnotationTypeChange(selectedAnnotation.id, type)}
 						onStyleChange={(style) => onAnnotationStyleChange(selectedAnnotation.id, style)}
@@ -803,9 +782,6 @@ export function SettingsPanel({
 						}
 						onDelete={() => onAnnotationDelete(selectedAnnotation.id)}
 					/>
-				</div>
-				<div className="flex-shrink-0 p-3 border-t border-white/[0.07] bg-black/25">
-					{commonFooterLinks}
 				</div>
 			</div>
 		);
@@ -821,9 +797,6 @@ export function SettingsPanel({
 						onBlurDataCommit={onBlurDataCommit}
 						onDelete={() => onBlurDelete(selectedBlur.id)}
 					/>
-				</div>
-				<div className="flex-shrink-0 p-3 border-t border-white/[0.07] bg-black/25">
-					{commonFooterLinks}
 				</div>
 			</div>
 		);
@@ -1557,6 +1530,29 @@ export function SettingsPanel({
 													<>
 														<div className="flex items-center justify-between">
 															<div className="flex items-center gap-1 text-[10px] font-medium text-slate-300">
+																<span>{t("cursor.smartMotion")}</span>
+																<Tooltip
+																	content={t("cursor.smartMotionDescription")}
+																	className="max-w-[220px] leading-snug whitespace-normal"
+																>
+																	<button
+																		type="button"
+																		className="text-slate-400 transition-colors hover:text-slate-200"
+																		aria-label={t("cursor.smartMotionDescription")}
+																	>
+																		<Info size={11} />
+																	</button>
+																</Tooltip>
+															</div>
+															<Switch
+																checked={smartCursorEnabled}
+																onCheckedChange={onSmartCursorEnabledChange}
+																className="data-[state=checked]:bg-[#34B27B] scale-90"
+																aria-label={t("cursor.smartMotion")}
+															/>
+														</div>
+														<div className="flex items-center justify-between">
+															<div className="flex items-center gap-1 text-[10px] font-medium text-slate-300">
 																<span>{t("cursor.clipToBounds")}</span>
 																<Tooltip
 																	content={t("cursor.clipToBoundsDescription")}
@@ -1704,142 +1700,174 @@ export function SettingsPanel({
 										</div>
 									</AccordionTrigger>
 									<AccordionContent className="pb-3">
-										<Tabs defaultValue="image" className="w-full">
-											<TabsList className="mb-2 bg-white/5 border border-white/5 p-0.5 w-full grid grid-cols-3 h-7 rounded-lg">
-												<TabsTrigger
-													value="image"
-													className="data-[state=active]:bg-[#34B27B] data-[state=active]:text-white text-slate-400 text-[10px] py-1 rounded-md transition-all"
-												>
-													{t("background.image")}
-												</TabsTrigger>
-												<TabsTrigger
-													value="color"
-													className="data-[state=active]:bg-[#34B27B] data-[state=active]:text-white text-slate-400 text-[10px] py-1 rounded-md transition-all"
-												>
-													{t("background.color")}
-												</TabsTrigger>
-												<TabsTrigger
-													value="gradient"
-													className="data-[state=active]:bg-[#34B27B] data-[state=active]:text-white text-slate-400 text-[10px] py-1 rounded-md transition-all"
-												>
-													{t("background.gradient")}
-												</TabsTrigger>
-											</TabsList>
-
-											<div className="overflow-y-auto custom-scrollbar">
-												<TabsContent value="image" className="mt-0 space-y-2">
-													<input
-														type="file"
-														ref={fileInputRef}
-														onChange={handleImageUpload}
-														accept={BACKGROUND_IMAGE_ACCEPT}
-														className="hidden"
-													/>
-													<Button
-														onClick={() => fileInputRef.current?.click()}
-														variant="outline"
-														className="w-full gap-2 bg-white/5 text-slate-200 border-white/10 hover:bg-[#34B27B] hover:text-white hover:border-[#34B27B] transition-all h-7 text-[10px]"
+										<div className="mb-2 grid grid-cols-2 gap-1 rounded-lg border border-white/5 bg-white/5 p-0.5">
+											<button
+												type="button"
+												onClick={() => onBackgroundModeChange?.("wallpaper")}
+												className={cn(
+													"min-w-0 truncate rounded-md px-2 py-1 text-[10px] font-medium transition-all",
+													backgroundMode === "wallpaper"
+														? "bg-[#34B27B] text-white"
+														: "text-slate-400 hover:text-slate-200",
+												)}
+											>
+												{t("background.withBackground")}
+											</button>
+											<button
+												type="button"
+												onClick={() => onBackgroundModeChange?.("none")}
+												className={cn(
+													"min-w-0 truncate rounded-md px-2 py-1 text-[10px] font-medium transition-all",
+													backgroundMode === "none"
+														? "bg-[#34B27B] text-white"
+														: "text-slate-400 hover:text-slate-200",
+												)}
+											>
+												{t("background.noBackground")}
+											</button>
+										</div>
+										{backgroundMode === "none" ? (
+											<p className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[10px] leading-relaxed text-slate-400">
+												{t("background.noBackgroundDescription")}
+											</p>
+										) : (
+											<Tabs defaultValue="image" className="w-full">
+												<TabsList className="mb-2 bg-white/5 border border-white/5 p-0.5 w-full grid grid-cols-3 h-7 rounded-lg">
+													<TabsTrigger
+														value="image"
+														className="data-[state=active]:bg-[#34B27B] data-[state=active]:text-white text-slate-400 text-[10px] py-1 rounded-md transition-all"
 													>
-														<Upload className="w-3 h-3" />
-														{t("background.uploadCustom")}
-													</Button>
+														{t("background.image")}
+													</TabsTrigger>
+													<TabsTrigger
+														value="color"
+														className="data-[state=active]:bg-[#34B27B] data-[state=active]:text-white text-slate-400 text-[10px] py-1 rounded-md transition-all"
+													>
+														{t("background.color")}
+													</TabsTrigger>
+													<TabsTrigger
+														value="gradient"
+														className="data-[state=active]:bg-[#34B27B] data-[state=active]:text-white text-slate-400 text-[10px] py-1 rounded-md transition-all"
+													>
+														{t("background.gradient")}
+													</TabsTrigger>
+												</TabsList>
 
-													<div className="grid grid-cols-6 gap-2">
-														{customImages.map((imageUrl, idx) => {
-															const isSelected = selected === imageUrl;
-															return (
-																<div
-																	key={`custom-${idx}`}
-																	className={cn(
-																		"aspect-square w-8 h-8 rounded-lg border overflow-hidden cursor-pointer transition-all duration-150 relative group shadow-sm",
-																		isSelected
-																			? "border-[#34B27B] ring-1 ring-[#34B27B]/30"
-																			: "border-white/10 hover:border-[#34B27B]/40 opacity-80 hover:opacity-100 bg-white/5",
-																	)}
-																	style={{
-																		backgroundImage: `url(${imageUrl})`,
-																		backgroundSize: "cover",
-																		backgroundPosition: "center",
-																	}}
-																	onClick={() => onWallpaperChange(imageUrl)}
-																	role="button"
-																>
-																	<button
-																		onClick={(e) => handleRemoveCustomImage(imageUrl, e)}
-																		className="absolute top-0.5 right-0.5 w-3 h-3 bg-red-500/90 hover:bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10"
+												<div className="overflow-y-auto custom-scrollbar">
+													<TabsContent value="image" className="mt-0 space-y-2">
+														<input
+															type="file"
+															ref={fileInputRef}
+															onChange={handleImageUpload}
+															accept={BACKGROUND_IMAGE_ACCEPT}
+															className="hidden"
+														/>
+														<Button
+															onClick={() => fileInputRef.current?.click()}
+															variant="outline"
+															className="w-full gap-2 bg-white/5 text-slate-200 border-white/10 hover:bg-[#34B27B] hover:text-white hover:border-[#34B27B] transition-all h-7 text-[10px]"
+														>
+															<Upload className="w-3 h-3" />
+															{t("background.uploadCustom")}
+														</Button>
+
+														<div className="grid grid-cols-6 gap-2">
+															{customImages.map((imageUrl, idx) => {
+																const isSelected = selected === imageUrl;
+																return (
+																	<div
+																		key={`custom-${idx}`}
+																		className={cn(
+																			"aspect-square w-8 h-8 rounded-lg border overflow-hidden cursor-pointer transition-all duration-150 relative group shadow-sm",
+																			isSelected
+																				? "border-[#34B27B] ring-1 ring-[#34B27B]/30"
+																				: "border-white/10 hover:border-[#34B27B]/40 opacity-80 hover:opacity-100 bg-white/5",
+																		)}
+																		style={{
+																			backgroundImage: `url(${imageUrl})`,
+																			backgroundSize: "cover",
+																			backgroundPosition: "center",
+																		}}
+																		onClick={() => onWallpaperChange(imageUrl)}
+																		role="button"
 																	>
-																		<X className="w-2 h-2 text-white" />
-																	</button>
-																</div>
-															);
-														})}
+																		<button
+																			onClick={(e) => handleRemoveCustomImage(imageUrl, e)}
+																			className="absolute top-0.5 right-0.5 w-3 h-3 bg-red-500/90 hover:bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10"
+																		>
+																			<X className="w-2 h-2 text-white" />
+																		</button>
+																	</div>
+																);
+															})}
 
-														{WALLPAPER_PATHS.map((canonicalPath, i) => {
-															const previewUrl = wallpaperPreviewUrls[i] ?? canonicalPath;
-															const isSelected = selected === canonicalPath;
-															return (
+															{WALLPAPER_PATHS.map((canonicalPath, i) => {
+																const previewUrl = wallpaperPreviewUrls[i] ?? canonicalPath;
+																const isSelected = selected === canonicalPath;
+																return (
+																	<div
+																		key={canonicalPath}
+																		className={cn(
+																			"aspect-square w-8 h-8 rounded-lg border overflow-hidden cursor-pointer transition-all duration-150 shadow-sm",
+																			isSelected
+																				? "border-[#34B27B] ring-1 ring-[#34B27B]/30"
+																				: "border-white/10 hover:border-[#34B27B]/40 opacity-80 hover:opacity-100 bg-white/5",
+																		)}
+																		style={{
+																			backgroundImage: `url(${previewUrl})`,
+																			backgroundSize: "cover",
+																			backgroundPosition: "center",
+																		}}
+																		onClick={() => onWallpaperChange(canonicalPath)}
+																		role="button"
+																	/>
+																);
+															})}
+														</div>
+													</TabsContent>
+
+													<TabsContent value="color" className="mt-0">
+														<ColorPicker
+															selectedColor={selectedColor}
+															colorPalette={colorPalette}
+															translations={{
+																colorWheel: t("background.colorWheel"),
+																colorPalette: t("background.colorPalette"),
+															}}
+															onUpdateColor={(color) => {
+																setSelectedColor(color);
+																onWallpaperChange(color);
+															}}
+														/>
+													</TabsContent>
+
+													<TabsContent value="gradient" className="mt-0">
+														<div className="grid grid-cols-6 gap-2">
+															{GRADIENTS.map((g, idx) => (
 																<div
-																	key={canonicalPath}
+																	key={g}
 																	className={cn(
 																		"aspect-square w-8 h-8 rounded-lg border overflow-hidden cursor-pointer transition-all duration-150 shadow-sm",
-																		isSelected
+																		gradient === g
 																			? "border-[#34B27B] ring-1 ring-[#34B27B]/30"
 																			: "border-white/10 hover:border-[#34B27B]/40 opacity-80 hover:opacity-100 bg-white/5",
 																	)}
-																	style={{
-																		backgroundImage: `url(${previewUrl})`,
-																		backgroundSize: "cover",
-																		backgroundPosition: "center",
+																	style={{ background: g }}
+																	aria-label={t("background.gradientLabel", {
+																		index: idx + 1,
+																	})}
+																	onClick={() => {
+																		setGradient(g);
+																		onWallpaperChange(g);
 																	}}
-																	onClick={() => onWallpaperChange(canonicalPath)}
 																	role="button"
 																/>
-															);
-														})}
-													</div>
-												</TabsContent>
-
-												<TabsContent value="color" className="mt-0">
-													<ColorPicker
-														selectedColor={selectedColor}
-														colorPalette={colorPalette}
-														translations={{
-															colorWheel: t("background.colorWheel"),
-															colorPalette: t("background.colorPalette"),
-														}}
-														onUpdateColor={(color) => {
-															setSelectedColor(color);
-															onWallpaperChange(color);
-														}}
-													/>
-												</TabsContent>
-
-												<TabsContent value="gradient" className="mt-0">
-													<div className="grid grid-cols-6 gap-2">
-														{GRADIENTS.map((g, idx) => (
-															<div
-																key={g}
-																className={cn(
-																	"aspect-square w-8 h-8 rounded-lg border overflow-hidden cursor-pointer transition-all duration-150 shadow-sm",
-																	gradient === g
-																		? "border-[#34B27B] ring-1 ring-[#34B27B]/30"
-																		: "border-white/10 hover:border-[#34B27B]/40 opacity-80 hover:opacity-100 bg-white/5",
-																)}
-																style={{ background: g }}
-																aria-label={t("background.gradientLabel", {
-																	index: idx + 1,
-																})}
-																onClick={() => {
-																	setGradient(g);
-																	onWallpaperChange(g);
-																}}
-																role="button"
-															/>
-														))}
-													</div>
-												</TabsContent>
-											</div>
-										</Tabs>
+															))}
+														</div>
+													</TabsContent>
+												</div>
+											</Tabs>
+										)}
 									</AccordionContent>
 								</AccordionItem>
 							)}
@@ -1862,6 +1890,81 @@ export function SettingsPanel({
 												className="data-[state=checked]:bg-[#34B27B] scale-90 ml-2 shrink-0"
 											/>
 										</div>
+										{timelineTracks.length > 0 && (
+											<div className="mt-2 space-y-1">
+												{[...timelineTracks]
+													.sort((a, b) => a.order - b.order)
+													.map((track) => {
+														const labels: Record<TimelineTrack["kind"], string> = {
+															video: "Video",
+															audio: "Mixed audio",
+															zoom: "Zoom",
+															annotation: "Text",
+															blur: "Blur",
+															speed: "Speed",
+														};
+														return (
+															<div
+																key={track.id}
+																className="flex h-8 items-center gap-1 rounded-md px-2 editor-control-surface"
+															>
+																<span className="min-w-0 flex-1 truncate text-[10px] text-slate-300">
+																	{labels[track.kind]}
+																</span>
+																{track.kind === "audio" && (
+																	<Button
+																		variant="ghost"
+																		size="icon"
+																		className="h-6 w-6"
+																		onClick={() =>
+																			onTimelineTrackChange?.(track.id, { muted: !track.muted })
+																		}
+																		aria-label={track.muted ? "Unmute track" : "Mute track"}
+																	>
+																		{track.muted ? (
+																			<VolumeX className="h-3.5 w-3.5" />
+																		) : (
+																			<Volume2 className="h-3.5 w-3.5" />
+																		)}
+																	</Button>
+																)}
+																{track.kind !== "audio" && (
+																	<Button
+																		variant="ghost"
+																		size="icon"
+																		className="h-6 w-6"
+																		onClick={() =>
+																			onTimelineTrackChange?.(track.id, { hidden: !track.hidden })
+																		}
+																		aria-label={track.hidden ? "Show track" : "Hide track"}
+																	>
+																		{track.hidden ? (
+																			<EyeOff className="h-3.5 w-3.5" />
+																		) : (
+																			<Eye className="h-3.5 w-3.5" />
+																		)}
+																	</Button>
+																)}
+																<Button
+																	variant="ghost"
+																	size="icon"
+																	className="h-6 w-6"
+																	onClick={() =>
+																		onTimelineTrackChange?.(track.id, { locked: !track.locked })
+																	}
+																	aria-label={track.locked ? "Unlock track" : "Lock track"}
+																>
+																	{track.locked ? (
+																		<Lock className="h-3.5 w-3.5" />
+																	) : (
+																		<Unlock className="h-3.5 w-3.5" />
+																	)}
+																</Button>
+															</div>
+														);
+													})}
+											</div>
+										)}
 									</AccordionContent>
 								</AccordionItem>
 							)}
@@ -2031,7 +2134,7 @@ export function SettingsPanel({
 									<div className="flex items-center justify-between px-0.5 text-[10px] leading-none text-slate-500">
 										<span>{t("exportQuality.title")}</span>
 										<span>
-											Source {sourceDimensions.width}x{sourceDimensions.height}
+											{t("exportQuality.source")} {sourceDimensions.width}×{sourceDimensions.height}
 										</span>
 									</div>
 								)}
@@ -2097,7 +2200,7 @@ export function SettingsPanel({
 													exportQuality === "source" ? "text-black/55" : "text-slate-500",
 												)}
 											>
-												{sourceDimensions.shortSide}p
+												{sourceDimensions.width}×{sourceDimensions.height}
 											</span>
 										)}
 									</button>
@@ -2183,8 +2286,6 @@ export function SettingsPanel({
 						</Button>
 					</>
 				)}
-
-				{commonFooterLinks}
 			</div>
 		</div>
 	);

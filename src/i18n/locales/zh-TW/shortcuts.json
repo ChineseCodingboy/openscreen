@@ -16,6 +16,7 @@
 	"registrationFailed": "快捷鍵註冊失敗。可能已被其他應用程式佔用。請嘗試其他按鍵。",
 	"actions": {
 		"openApp": "開啟應用程式",
+		"summonHud": "呼出錄製工具列",
 		"addZoom": "新增縮放",
 		"addTrim": "新增剪輯",
 		"addSpeed": "新增速度",
@@ -31,8 +32,6 @@
 		"cycleAnnotationsForward": "向前切換標註",
 		"cycleAnnotationsBackward": "向後切換標註",
 		"deleteSelectedAlt": "刪除所選（替代）",
-		"panTimeline": "平移時間軸",
-		"zoomTimeline": "縮放時間軸",
 		"frameBack": "上一影格",
 		"frameForward": "下一影格"
 	}

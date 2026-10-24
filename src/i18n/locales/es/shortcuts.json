@@ -16,6 +16,7 @@
 	"registrationFailed": "Error al registrar el atajo. Puede estar en uso por otra aplicación. Prueba otra tecla.",
 	"actions": {
 		"openApp": "Abrir aplicación",
+		"summonHud": "Mostrar barra de grabación",
 		"addZoom": "Agregar zoom",
 		"addTrim": "Agregar recorte",
 		"addSpeed": "Agregar velocidad",
@@ -31,8 +32,6 @@
 		"cycleAnnotationsForward": "Recorrer anotaciones hacia adelante",
 		"cycleAnnotationsBackward": "Recorrer anotaciones hacia atrás",
 		"deleteSelectedAlt": "Eliminar seleccionado (alt)",
-		"panTimeline": "Desplazar línea de tiempo",
-		"zoomTimeline": "Zoom en línea de tiempo",
 		"frameBack": "Fotograma anterior",
 		"frameForward": "Fotograma siguiente"
 	}

@@ -31,7 +31,10 @@ function normalizeArch(value) {
 		: { swift: "arm64", tag: "darwin-arm64" };
 }
 const hostArch = process.arch === "arm64" ? "arm64" : "x86_64";
-const archs = (process.env.OPENSCREEN_MAC_HELPER_ARCHS ?? hostArch)
+const requestedArchs = process.argv.includes("--all")
+	? "arm64,x64"
+	: (process.env.OPENSCREEN_MAC_HELPER_ARCHS ?? hostArch);
+const archs = requestedArchs
 	.split(",")
 	.map((a) => a.trim())
 	.filter(Boolean)
@@ -44,20 +47,13 @@ const xcodebuildVersion = spawnSync("xcodebuild", ["-version"], {
 
 if (xcodebuildVersion.status !== 0) {
 	const message = `${xcodebuildVersion.stderr ?? ""}${xcodebuildVersion.stdout ?? ""}`.trim();
-	console.error(
+	console.warn(
 		[
-			"Unable to build the macOS ScreenCaptureKit helper because full Xcode is not active.",
+			"Full Xcode is not active; attempting the Swift build with Command Line Tools.",
 			"",
 			message,
-			"",
-			"Install Xcode from the App Store or Apple Developer downloads, then run:",
-			"  sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer",
-			"  sudo xcodebuild -license accept",
-			"",
-			"Command Line Tools alone may not include the Swift SDK/platform metadata required by SwiftPM.",
 		].join("\n"),
 	);
-	process.exit(1);
 }
 
 // SwiftPM writes a single-arch release build to <buildPath>/<swiftArch>-apple-macosx/release/<name>.

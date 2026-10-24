@@ -168,22 +168,30 @@ export class StreamingVideoDecoder {
 	private decoder: VideoDecoder | null = null;
 	private cancelled = false;
 	private metadata: DecodedVideoInfo | null = null;
+	private mediaSourceHandleId: string | null = null;
 
 	/** Routes to the appropriate loader based on whether the source is local or remote. */
-	private async loadSourceFile(videoUrl: string): Promise<{ file: File; blob: Blob }> {
+	private async loadSource(videoUrl: string): Promise<File | string> {
 		const isRemoteUrl = /^(https?:|blob:|data:)/i.test(videoUrl);
 		if (!isRemoteUrl && window.electronAPI) {
-			return this.withTimeout(
+			const handle = await window.electronAPI.createMediaSourceHandle(videoUrl);
+			if (handle.success && handle.id && handle.url) {
+				this.mediaSourceHandleId = handle.id;
+				return handle.url;
+			}
+			const { file } = await this.withTimeout(
 				StreamingVideoDecoder.loadLocalSourceFile(videoUrl),
 				SOURCE_LOAD_TIMEOUT_MS,
 				"Timed out while loading the source video.",
 			);
+			return file;
 		}
-		return this.withTimeout(
+		const { file } = await this.withTimeout(
 			StreamingVideoDecoder.loadRemoteSourceFile(videoUrl),
 			SOURCE_LOAD_TIMEOUT_MS,
 			"Timed out while loading the source video.",
 		);
+		return file;
 	}
 
 	/** Loads a local video file via the Electron IPC bridge. */
@@ -218,13 +226,13 @@ export class StreamingVideoDecoder {
 	}
 
 	async loadMetadata(videoUrl: string): Promise<DecodedVideoInfo> {
-		const { file } = await this.loadSourceFile(videoUrl);
+		const source = await this.loadSource(videoUrl);
 
 		// Relative URL so it resolves in both dev (http) and packaged (file://) builds
 		const wasmUrl = new URL("./wasm/web-demuxer.wasm", window.location.href).href;
 		this.demuxer = new WebDemuxer({ wasmFilePath: wasmUrl });
 		await this.withTimeout(
-			this.demuxer.load(file),
+			this.demuxer.load(source),
 			SOURCE_LOAD_TIMEOUT_MS,
 			"Timed out while parsing the source video.",
 		);
@@ -432,7 +440,7 @@ export class StreamingVideoDecoder {
 
 		// One forward stream through the whole file. Pass an explicit range because
 		// some containers are truncated when no end is provided.
-		const readEndSec = this.metadata.duration + 0.5;
+		const readEndSec = Math.min(this.metadata.duration + 0.5, requiredEndSec + 0.5);
 		const reader = this.demuxer.read("video", 0, readEndSec).getReader();
 
 		// Feed chunks to the decoder in the background with backpressure.
@@ -757,6 +765,10 @@ export class StreamingVideoDecoder {
 				/* ignore */
 			}
 			this.demuxer = null;
+		}
+		if (this.mediaSourceHandleId) {
+			void window.electronAPI.releaseMediaSourceHandle(this.mediaSourceHandleId);
+			this.mediaSourceHandleId = null;
 		}
 	}
 

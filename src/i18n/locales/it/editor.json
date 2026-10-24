@@ -46,7 +46,8 @@
 	"autoCaptions": {
 		"button": "Sottotitoli automatici",
 		"dialogTitle": "Sottotitoli automatici",
-		"dialogDescription": "Scegli all'incirca quante parole mostrare per ogni sottotitolo. La temporizzazione viene distribuita tra le parole della frase.",
+		"dialogDescription": "I sottotitoli vengono divisi automaticamente in frasi naturali e leggibili.",
+		"adaptiveHint": "Non serve impostare il numero di parole. Pause, punteggiatura, ritmo e larghezza del testo vengono bilanciati automaticamente.",
 		"minWords": "Numero minimo di parole per sottotitolo",
 		"maxWords": "Numero massimo di parole per sottotitolo",
 		"wordsCount": "{{count}} parole",
@@ -61,5 +62,78 @@
 		"noAudio": "Questo video non contiene audio utilizzabile per la trascrizione.",
 		"failed": "Impossibile generare i sottotitoli.",
 		"truncated": "Sono stati trascritti solo i primi {{minutes}} minuti."
+	},
+	"voiceover": {
+		"dialogTitle": "Voce fuori campo IA",
+		"dialogDescription": "Legge la trascrizione con una voce chiara e standard e sostituisce la traccia audio originale.",
+		"tabCaptions": "Sottotitoli",
+		"tabVoiceover": "Voce IA",
+		"voice": "Voce",
+		"style": "Stile",
+		"styles": {
+			"sleek": "Elegante e premium",
+			"energetic": "Energico",
+			"broadcast": "Speaker",
+			"conversational": "Colloquiale"
+		},
+		"polish": "Rifinisci la trascrizione (rimuovi intercalari)",
+		"replaceOriginal": "Sostituisci l'audio originale (silenziarlo)",
+		"hint": "I sottotitoli sulla timeline sono il copione: modifica prima il loro testo per cambiare ciò che viene detto. Senza sottotitoli, il parlato viene trascritto automaticamente.",
+		"generate": "Genera voce fuori campo",
+		"regenerate": "Rigenera voce fuori campo",
+		"remove": "Rimuovi voce fuori campo",
+		"transcribing": "Trascrizione del parlato…",
+		"synthesizing": "Sintesi vocale {{done}}/{{total}}…",
+		"saving": "Salvataggio della traccia audio…",
+		"done": "Voce fuori campo aggiunta alla timeline.",
+		"compressedNote": "{{count}} battute sono state leggermente accelerate per rispettare i tempi.",
+		"removed": "Voce fuori campo rimossa e audio originale ripristinato.",
+		"failed": "Impossibile generare la voce fuori campo.",
+		"busy": "La generazione della voce fuori campo è già in corso.",
+		"quality": "Qualità",
+		"qualityHd": "Alta fedeltà",
+		"qualityStandard": "Standard (più economico)",
+		"targetLanguage": "Lingua di destinazione",
+		"sourceLanguage": "Lingua originale (senza traduzione)",
+		"syncCaptions": "Traduci anche i sottotitoli della timeline",
+		"translating": "Traduzione del copione…",
+		"hdCostHint": "L'alta fedeltà usa i modelli gpt-audio (≈$0,1–0,2 al minuto di audio)."
+	},
+	"loadingEditor": "Caricamento dell'editor...",
+	"emptyState": {
+		"title": "Nessun progetto aperto",
+		"description": "Importa un video per iniziare a modificare oppure carica un progetto OpenScreen esistente.",
+		"importVideoButton": "Importa file video…",
+		"loadProjectButton": "Carica progetto…",
+		"supportedFormats": "Formati supportati: MP4, MOV, WebM, MKV, AVI, M4V, WMV",
+		"dragDropHint": "oppure trascina qui un file di progetto .openscreen",
+		"dropOverlay": "Rilascia il file di progetto per aprirlo",
+		"dropErrors": {
+			"unsupportedFormatTitle": "Formato non supportato",
+			"unsupportedFormatMessage": "Qui puoi rilasciare solo file di progetto .openscreen. Per importare un video usa il pulsante \"Importa file video…\" in questa schermata.",
+			"couldNotOpenTitle": "Impossibile aprire il file",
+			"couldNotOpenMessage": "Impossibile aprire il file di progetto. Il video a cui fa riferimento potrebbe essere stato spostato o eliminato."
+		}
+	},
+	"background": {
+		"withBackground": "Background",
+		"noBackground": "No background",
+		"noBackgroundDescription": "Show only the recorded page edge-to-edge. Export will match the preview."
+	},
+	"mediaLibrary": {
+		"title": "Media Library",
+		"subtitle": "Your recordings and saved projects",
+		"back": "Back to editor",
+		"refresh": "Refresh",
+		"openFromComputer": "Open from computer",
+		"loading": "Loading library…",
+		"loadError": "Could not load the media library.",
+		"retry": "Try again",
+		"emptyTitle": "No recordings yet",
+		"emptyDescription": "Start a recording or open a video from your computer.",
+		"newRecording": "New recording",
+		"project": "Project",
+		"recording": "Recording",
+		"edited": "Project saved"
 	}
 }

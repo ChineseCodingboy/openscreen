@@ -18,6 +18,7 @@ export class VideoMuxer {
 	private target: BufferTarget | null = null;
 	private config: ExportConfig;
 	private audioCodec: ExportAudioMuxerCodec;
+	private audioChunkCount = 0;
 
 	constructor(config: ExportConfig, hasAudio = false, audioCodec: ExportAudioMuxerCodec = "aac") {
 		this.config = config;
@@ -67,11 +68,21 @@ export class VideoMuxer {
 		const packet = EncodedPacket.fromEncodedChunk(chunk);
 
 		await this.audioSource.add(packet, meta);
+		this.audioChunkCount++;
+	}
+
+	getAudioChunkCount(): number {
+		return this.audioChunkCount;
 	}
 
 	async finalize(): Promise<Blob> {
 		if (!this.output || !this.target) {
 			throw new Error("Muxer not initialized");
+		}
+		if (this.hasAudio && this.audioChunkCount === 0) {
+			throw new Error(
+				"Audio was expected, but export produced no audio packets. The video was not saved silently.",
+			);
 		}
 
 		await this.output.finalize();

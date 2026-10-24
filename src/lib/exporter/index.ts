@@ -10,6 +10,7 @@ export { StreamingVideoDecoder } from "./streamingDecoder";
 export type {
 	ExportConfig,
 	ExportFormat,
+	ExportPath,
 	ExportProgress,
 	ExportQuality,
 	ExportResult,
@@ -26,4 +27,10 @@ export {
 	VALID_GIF_FRAME_RATES,
 } from "./types";
 export { VideoFileDecoder } from "./videoDecoder";
-export { VideoExporter } from "./videoExporter";
+export {
+	createExportPlan,
+	getCompositeExportBlockers,
+	isSourceCopyFastPathEligible,
+	VideoExporter,
+	type VideoExporterConfig,
+} from "./videoExporter";

@@ -16,6 +16,7 @@
 	"registrationFailed": "Échec de l'enregistrement du raccourci. Il est peut-être utilisé par une autre application. Essayez une autre touche.",
 	"actions": {
 		"openApp": "Ouvrir l'application",
+		"summonHud": "Afficher la barre d'enregistrement",
 		"addZoom": "Ajouter un zoom",
 		"addTrim": "Ajouter une coupe",
 		"addSpeed": "Ajouter une vitesse",
@@ -31,8 +32,6 @@
 		"cycleAnnotationsForward": "Parcourir les annotations en avant",
 		"cycleAnnotationsBackward": "Parcourir les annotations en arrière",
 		"deleteSelectedAlt": "Supprimer la sélection (alt)",
-		"panTimeline": "Panoramique de la timeline",
-		"zoomTimeline": "Zoom de la timeline",
 		"frameBack": "Image précédente",
 		"frameForward": "Image suivante"
 	}

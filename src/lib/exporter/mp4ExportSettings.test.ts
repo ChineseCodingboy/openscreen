@@ -5,6 +5,17 @@ import {
 } from "./mp4ExportSettings";
 
 describe("calculateMp4ExportSettings", () => {
+	it("exports 4K source quality at native dimensions and high bitrate", () => {
+		expect(
+			calculateMp4ExportSettings({
+				quality: "source",
+				sourceWidth: 3840,
+				sourceHeight: 2160,
+				aspectRatioValue: 16 / 9,
+			}),
+		).toEqual({ width: 3840, height: 2160, bitrate: 80_000_000 });
+	});
+
 	it("keeps 1080p explicit even when it upscales short native captures", () => {
 		const aspectRatioValue = 1920 / 1032;
 

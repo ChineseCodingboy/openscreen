@@ -6,9 +6,13 @@ import {
 } from "@/components/video-editor/editorDefaults";
 import type {
 	AnnotationRegion,
+	AudioTrackClip,
 	CropRegion,
 	SpeedRegion,
+	TimelineTrack,
 	TrimRegion,
+	VideoTrackClip,
+	VoiceoverState,
 	WebcamLayoutPreset,
 	WebcamMaskShape,
 	WebcamPosition,
@@ -17,6 +21,7 @@ import type {
 } from "@/components/video-editor/types";
 import {
 	DEFAULT_CROP_REGION,
+	DEFAULT_TIMELINE_TRACKS,
 	DEFAULT_WEBCAM_MIRRORED,
 	DEFAULT_WEBCAM_REACTIVE_ZOOM,
 } from "@/components/video-editor/types";
@@ -31,11 +36,19 @@ export interface EditorState {
 	/** Global Auto-Focus toggle: when on, all zooms follow the cursor and the
 	 * per-zoom Focus Mode selector is locked. */
 	autoFocusAll: boolean;
+	/** Replace incidental cursor excursions with semantic A-to-B demo motion. */
+	smartCursorEnabled: boolean;
 	trimRegions: TrimRegion[];
 	speedRegions: SpeedRegion[];
 	annotationRegions: AnnotationRegion[];
+	audioTrackClips: AudioTrackClip[];
+	/** Generated AI voice-over metadata; its clip lives in audioTrackClips. */
+	voiceover: VoiceoverState | null;
+	videoTrackClips: VideoTrackClip[];
+	timelineTracks: TimelineTrack[];
 	cropRegion: CropRegion;
 	wallpaper: string;
+	backgroundMode: "wallpaper" | "none";
 	shadowIntensity: number;
 	showBlur: boolean;
 	showTrimWaveform: boolean;
@@ -55,11 +68,17 @@ export const INITIAL_EDITOR_STATE: EditorState = {
 	zoomRegions: [],
 	autoZoomEnabled: true,
 	autoFocusAll: false,
+	smartCursorEnabled: true,
 	trimRegions: [],
 	speedRegions: [],
 	annotationRegions: [],
+	audioTrackClips: [],
+	voiceover: null,
+	videoTrackClips: [],
+	timelineTracks: DEFAULT_TIMELINE_TRACKS,
 	cropRegion: DEFAULT_CROP_REGION,
 	wallpaper: DEFAULT_EDITOR_LAYOUT_SETTINGS.wallpaper,
+	backgroundMode: "wallpaper",
 	shadowIntensity: DEFAULT_EDITOR_APPEARANCE_SETTINGS.shadowIntensity,
 	showBlur: DEFAULT_EDITOR_APPEARANCE_SETTINGS.showBlur,
 	showTrimWaveform: DEFAULT_EDITOR_APPEARANCE_SETTINGS.showTrimWaveform,

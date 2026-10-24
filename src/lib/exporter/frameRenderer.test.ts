@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { resolveFrameRenderTimes } from "./frameRenderer";
 import { drawWebcamFrameImage } from "./webcamFrameDrawing";
 
 type DrawCall =
@@ -93,5 +94,21 @@ describe("drawWebcamFrameImage", () => {
 			["drawImage", frame, 12, 8, 640, 360, 0, 0, 320, 180],
 			["restore"],
 		]);
+	});
+});
+
+describe("resolveFrameRenderTimes", () => {
+	it("defaults cursor effects to the timeline timestamp", () => {
+		expect(resolveFrameRenderTimes(1_500_000)).toEqual({
+			timelineTimeMs: 1500,
+			cursorTimeMs: 1500,
+		});
+	});
+
+	it("keeps source cursor time separate from timeline effect time", () => {
+		expect(resolveFrameRenderTimes(1_500_000, 7_250_000)).toEqual({
+			timelineTimeMs: 1500,
+			cursorTimeMs: 7250,
+		});
 	});
 });

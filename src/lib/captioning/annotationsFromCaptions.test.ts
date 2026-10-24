@@ -2,10 +2,61 @@ import { describe, expect, it } from "vitest";
 
 import {
 	captionSegmentsToAnnotationRegions,
+	groupCaptionSegmentsAdaptively,
 	groupPhraseCaptionSegmentsIntoLines,
 	groupTimedCaptionWordsIntoLines,
 	reconcileAutoCaptionTimelineGaps,
+	replaceAutoCaptionRegions,
 } from "./annotationsFromCaptions";
+
+describe("groupCaptionSegmentsAdaptively", () => {
+	it("breaks on natural pauses and punctuation without word-count settings", () => {
+		const lines = groupCaptionSegmentsAdaptively([
+			{ startSec: 0, endSec: 0.35, text: "This" },
+			{ startSec: 0.36, endSec: 0.72, text: "works." },
+			{ startSec: 1.3, endSec: 1.65, text: "Next" },
+			{ startSec: 1.66, endSec: 2.1, text: "idea" },
+		]);
+
+		expect(lines.map((line) => line.text)).toEqual(["This works.", "Next idea"]);
+		expect(lines[1]!.startSec).toBe(1.3);
+	});
+
+	it("limits dense Chinese captions by readable visual width", () => {
+		const characters = Array.from("这是一个会根据画面宽度和说话速度自动分段的字幕示例").map(
+			(text, index) => ({
+				startSec: index * 0.16,
+				endSec: index * 0.16 + 0.15,
+				text,
+			}),
+		);
+		const lines = groupCaptionSegmentsAdaptively(characters);
+
+		expect(lines.length).toBeGreaterThan(1);
+		expect(lines.every((line) => Array.from(line.text).length <= 15)).toBe(true);
+		expect(lines.map((line) => line.text).join("")).toBe(
+			"这是一个会根据画面宽度和说话速度自动分段的字幕示例",
+		);
+	});
+
+	it("tokenizes unspaced phrase-timestamp Chinese before adaptive layout", () => {
+		const lines = groupCaptionSegmentsAdaptively(
+			[
+				{
+					startSec: 0,
+					endSec: 4,
+					text: "这是一个很长的中文语句需要根据阅读宽度自动拆分成多条字幕",
+				},
+			],
+			"phrase",
+		);
+
+		expect(lines.length).toBeGreaterThan(1);
+		expect(lines.map((line) => line.text).join("")).toBe(
+			"这是一个很长的中文语句需要根据阅读宽度自动拆分成多条字幕",
+		);
+	});
+});
 
 describe("groupPhraseCaptionSegmentsIntoLines", () => {
 	it("preserves phrase boundaries when formatting phrase-timestamp captions", () => {
@@ -46,6 +97,22 @@ describe("groupPhraseCaptionSegmentsIntoLines", () => {
 });
 
 describe("captionSegmentsToAnnotationRegions", () => {
+	it("puts every generated caption clip on one visual track", () => {
+		const { regions, nextZIndex } = captionSegmentsToAnnotationRegions(
+			[
+				{ startSec: 0, endSec: 0.5, text: "first caption" },
+				{ startSec: 0.6, endSec: 1.1, text: "second caption" },
+			],
+			1,
+			7,
+			{ minWordsPerCaption: 2, maxWordsPerCaption: 2, timestampGranularity: "phrase" },
+		);
+
+		expect(regions).toHaveLength(2);
+		expect(regions.map((region) => region.zIndex)).toEqual([7, 7]);
+		expect(nextZIndex).toBe(8);
+	});
+
 	it("uses raw phrase timing instead of shifting caption boundaries", () => {
 		const { regions } = captionSegmentsToAnnotationRegions(
 			[
@@ -92,6 +159,42 @@ describe("captionSegmentsToAnnotationRegions", () => {
 
 		expect(regions).toHaveLength(1);
 		expect(regions[0]).toMatchObject({ content: "I I" });
+	});
+});
+
+describe("replaceAutoCaptionRegions", () => {
+	it("replaces the previous generated track and keeps manual annotations", () => {
+		const style = {
+			color: "#fff",
+			backgroundColor: "transparent",
+			fontSize: 24,
+			fontFamily: "Inter",
+			fontWeight: "normal" as const,
+			fontStyle: "normal" as const,
+			textDecoration: "none" as const,
+			textAlign: "center" as const,
+		};
+		const base = {
+			startMs: 0,
+			endMs: 100,
+			type: "text" as const,
+			position: { x: 0, y: 0 },
+			size: { width: 10, height: 10 },
+			style,
+		};
+		const result = replaceAutoCaptionRegions(
+			[
+				{ ...base, id: "old-caption", content: "old", annotationSource: "auto-caption", zIndex: 2 },
+				{ ...base, id: "manual", content: "manual", zIndex: 3 },
+			],
+			[
+				{ ...base, id: "new-1", content: "new one", annotationSource: "auto-caption", zIndex: 9 },
+				{ ...base, id: "new-2", content: "new two", annotationSource: "auto-caption", zIndex: 10 },
+			],
+		);
+
+		expect(result.map((region) => region.id)).toEqual(["manual", "new-1", "new-2"]);
+		expect(result.slice(1).map((region) => region.zIndex)).toEqual([9, 9]);
 	});
 });
 
@@ -174,5 +277,29 @@ describe("reconcileAutoCaptionTimelineGaps", () => {
 			startMs: 130,
 			endMs: 300,
 		});
+	});
+});
+
+describe("CJK caption line joining", () => {
+	it("joins Chinese word tokens without spaces", () => {
+		const words = ["好", "那", "我们", "今天", "来", "看一下", "这个"].map((text, index) => ({
+			startSec: index * 0.3,
+			endSec: index * 0.3 + 0.25,
+			text,
+		}));
+		const lines = groupTimedCaptionWordsIntoLines(words, 2, 7);
+		expect(lines.length).toBe(1);
+		expect(lines[0].text).toBe("好那我们今天来看一下这个");
+	});
+
+	it("keeps spaces for Latin tokens and mixed boundaries", () => {
+		const words = ["cloud", "的", "度", "怎么样"].map((text, index) => ({
+			startSec: index * 0.3,
+			endSec: index * 0.3 + 0.25,
+			text,
+		}));
+		const lines = groupTimedCaptionWordsIntoLines(words, 2, 7);
+		expect(lines.length).toBe(1);
+		expect(lines[0].text).toBe("cloud 的度怎么样");
 	});
 });

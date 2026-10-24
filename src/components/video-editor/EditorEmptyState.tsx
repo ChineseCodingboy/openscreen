@@ -2,18 +2,22 @@ import { AlertCircle, Film, FolderOpen, Upload, X } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useScopedT } from "@/contexts/I18nContext";
-import { getProjectFolder, parentDirectoryOf, saveUserPreferences } from "@/lib/userPreferences";
 import { nativeBridgeClient } from "@/native";
 
 interface EditorEmptyStateProps {
 	onVideoImported: (videoPath: string) => void;
+	onLoadFromLibrary: () => void;
 	/** Called with the loaded project data; handles both button click and drag-drop */
 	onProjectOpened: (project: unknown, path: string | null) => void;
 }
 
 type DropError = "unsupported-format" | "load-failed" | null;
 
-export function EditorEmptyState({ onVideoImported, onProjectOpened }: EditorEmptyStateProps) {
+export function EditorEmptyState({
+	onVideoImported,
+	onLoadFromLibrary,
+	onProjectOpened,
+}: EditorEmptyStateProps) {
 	const te = useScopedT("editor");
 	const tc = useScopedT("common");
 	const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -34,18 +38,6 @@ export function EditorEmptyState({ onVideoImported, onProjectOpened }: EditorEmp
 
 		onVideoImported(result.path);
 	}, [onVideoImported]);
-
-	const handleLoadProject = useCallback(async () => {
-		const result = await nativeBridgeClient.project.loadProjectFile(getProjectFolder());
-		if (result.canceled || !result.success || !result.project) return;
-		if (result.path) {
-			const folder = parentDirectoryOf(result.path);
-			if (folder) {
-				saveUserPreferences({ projectFolder: folder });
-			}
-		}
-		onProjectOpened(result.project, result.path ?? null);
-	}, [onProjectOpened]);
 
 	const handleDragOver = useCallback((e: React.DragEvent) => {
 		e.preventDefault();
@@ -188,7 +180,7 @@ export function EditorEmptyState({ onVideoImported, onProjectOpened }: EditorEmp
 					</button>
 					<button
 						type="button"
-						onClick={handleLoadProject}
+						onClick={onLoadFromLibrary}
 						className="flex items-center justify-center gap-2.5 w-full px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 font-medium text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-white/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#09090b]"
 					>
 						<FolderOpen className="h-4 w-4" />

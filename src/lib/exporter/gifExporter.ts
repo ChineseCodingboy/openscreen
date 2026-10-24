@@ -1,17 +1,29 @@
 import GIF from "gif.js";
+import { TimelineMapper } from "@/components/video-editor/timeline/timelineMapper";
 import type {
 	AnnotationRegion,
 	CropRegion,
 	SpeedRegion,
 	TrimRegion,
+	VideoTrackClip,
 	WebcamLayoutPreset,
 	WebcamSizePreset,
 	ZoomRegion,
 } from "@/components/video-editor/types";
 import { BackgroundLoadError } from "@/lib/wallpaper";
+import { mapScreenSourceToWebcam, type WebcamSyncMetadata } from "@/lib/webcamSync";
 import type { CursorRecordingData } from "@/native/contracts";
 import { getPlatform } from "@/utils/platformUtils";
 import { FrameRenderer } from "./frameRenderer";
+import {
+	buildMediaTimelineTiming,
+	buildMediaVideoDecodeJobs,
+	frameIndexForExportTimestamp,
+	frameIndexForTimelineTime,
+	shouldRenderMediaBackground,
+	timelineTimeForExportTime,
+	totalFramesForExportDuration,
+} from "./mediaTimelineTiming";
 import { StreamingVideoDecoder } from "./streamingDecoder";
 import { TimestampedVideoFrameQueue } from "./timestampedVideoFrameQueue";
 import type {
@@ -27,15 +39,19 @@ const GIF_WORKER_URL = new URL("gif.js/dist/gif.worker.js", import.meta.url).toS
 interface GifExporterConfig {
 	videoUrl: string;
 	webcamVideoUrl?: string;
+	webcamSync?: WebcamSyncMetadata;
 	width: number;
 	height: number;
 	frameRate: GifFrameRate;
 	loop: boolean;
 	sizePreset: GifSizePreset;
 	wallpaper: string;
+	backgroundMode?: "wallpaper" | "none";
 	zoomRegions: ZoomRegion[];
 	trimRegions?: TrimRegion[];
 	speedRegions?: SpeedRegion[];
+	videoTrackClips?: VideoTrackClip[];
+	videoTrackHidden?: boolean;
 	showShadow: boolean;
 	shadowIntensity: number;
 	showBlur: boolean;
@@ -53,6 +69,7 @@ interface GifExporterConfig {
 	cursorRecordingData?: CursorRecordingData | null;
 	cursorScale?: number;
 	cursorSmoothing?: number;
+	smartCursorEnabled?: boolean;
 	cursorMotionBlur?: number;
 	cursorClickBounce?: number;
 	cursorClipToBounds?: boolean;
@@ -150,6 +167,7 @@ export class GifExporter {
 				width: this.config.width,
 				height: this.config.height,
 				wallpaper: this.config.wallpaper,
+				backgroundMode: this.config.backgroundMode,
 				zoomRegions: this.config.zoomRegions,
 				showShadow: this.config.showShadow,
 				shadowIntensity: this.config.shadowIntensity,
@@ -161,6 +179,7 @@ export class GifExporter {
 				cursorRecordingData: this.config.cursorRecordingData,
 				cursorScale: this.config.cursorScale,
 				cursorSmoothing: this.config.cursorSmoothing,
+				smartCursorEnabled: this.config.smartCursorEnabled,
 				cursorMotionBlur: this.config.cursorMotionBlur,
 				cursorClickBounce: this.config.cursorClickBounce,
 				cursorClipToBounds: this.config.cursorClipToBounds,
@@ -201,11 +220,35 @@ export class GifExporter {
 			});
 
 			// Effective duration and frame count, excluding trim regions
-			const { effectiveDuration, totalFrames } = this.streamingDecoder.getExportMetrics(
+			const sourceMetrics = this.streamingDecoder.getExportMetrics(
 				this.config.frameRate,
 				this.config.trimRegions,
 				this.config.speedRegions,
 			);
+			const timelineMapper = new TimelineMapper(
+				this.config.videoTrackClips ?? [],
+				[],
+				this.config.speedRegions ?? [],
+			);
+			const usesMediaTimeline = Boolean(
+				this.config.videoTrackClips?.length || this.config.videoTrackHidden,
+			);
+			const mediaTiming = usesMediaTimeline
+				? buildMediaTimelineTiming(timelineMapper.durationMs, this.config.speedRegions ?? [])
+				: null;
+			const mediaDecodeJobs = usesMediaTimeline
+				? buildMediaVideoDecodeJobs(
+						this.config.videoTrackClips ?? [],
+						Math.round(videoInfo.duration * 1000),
+						this.config.speedRegions ?? [],
+					)
+				: [];
+			const effectiveDuration = usesMediaTimeline
+				? (mediaTiming?.exportDurationMs ?? 0) / 1000
+				: sourceMetrics.effectiveDuration;
+			const totalFrames = usesMediaTimeline
+				? totalFramesForExportDuration(mediaTiming?.exportDurationMs ?? 0, this.config.frameRate)
+				: sourceMetrics.totalFrames;
 
 			// gif.js wants frame delay in ms
 			const frameDelay = Math.round(1000 / this.config.frameRate);
@@ -219,97 +262,196 @@ export class GifExporter {
 			console.log("[GifExporter] Using streaming decode (web-demuxer + VideoDecoder)");
 
 			let frameIndex = 0;
-			webcamFrameQueue = this.config.webcamVideoUrl ? new TimestampedVideoFrameQueue() : null;
+			const mediaBackgroundTimestampUs = () =>
+				mediaTiming
+					? timelineTimeForExportTime(mediaTiming, (frameIndex * 1000) / this.config.frameRate) *
+						1000
+					: (frameIndex * 1_000_000) / this.config.frameRate;
+			const addRenderedFrame = () => {
+				const canvas = this.renderer!.getCanvas();
+				this.gif!.addFrame(canvas, { delay: frameDelay, copy: true });
+				frameIndex++;
+				this.config.onProgress?.({
+					currentFrame: frameIndex,
+					totalFrames,
+					percentage: Math.min(100, (frameIndex / totalFrames) * 100),
+					estimatedTimeRemaining: 0,
+				});
+			};
 			let stopWebcamDecode = false;
 			let webcamDecodeError: Error | null = null;
-			const webcamDecodePromise =
-				this.webcamDecoder && webcamFrameQueue
-					? (() => {
-							const queue = webcamFrameQueue;
-							return this.webcamDecoder
-								.decodeAll(
-									this.config.frameRate,
-									this.config.trimRegions,
-									this.config.speedRegions,
-									async (webcamFrame, _exportTimestampUs, webcamSourceTimestampMs) => {
-										while (queue.length >= 12 && !this.cancelled && !stopWebcamDecode) {
-											await new Promise((resolve) => setTimeout(resolve, 2));
-										}
-										if (this.cancelled || stopWebcamDecode) {
-											webcamFrame.close();
-											return;
-										}
-										queue.enqueue(webcamFrame, webcamSourceTimestampMs);
-									},
-									onWarning,
-								)
-								.catch((error) => {
-									webcamDecodeError = error instanceof Error ? error : new Error(String(error));
-									throw error;
-								})
-								.finally(() => {
-									if (webcamDecodeError) {
-										queue.fail(webcamDecodeError);
-									} else {
-										queue.close();
-									}
-								});
-						})()
-					: null;
+			let webcamDecodePromise: Promise<void> | null = null;
+			const startWebcamDecode = (_trimRegions?: TrimRegion[], _speedRegions?: SpeedRegion[]) => {
+				if (!this.webcamDecoder) return;
+				stopWebcamDecode = false;
+				webcamDecodeError = null;
+				webcamFrameQueue = new TimestampedVideoFrameQueue();
+				const queue = webcamFrameQueue;
+				webcamDecodePromise = this.webcamDecoder
+					.decodeAll(
+						this.config.frameRate,
+						undefined,
+						undefined,
+						async (webcamFrame, _exportTimestampUs, webcamSourceTimestampMs) => {
+							while (queue.length >= 12 && !this.cancelled && !stopWebcamDecode) {
+								await new Promise((resolve) => setTimeout(resolve, 2));
+							}
+							if (this.cancelled || stopWebcamDecode) {
+								webcamFrame.close();
+								return;
+							}
+							queue.enqueue(webcamFrame, webcamSourceTimestampMs);
+						},
+						onWarning,
+					)
+					.catch((error) => {
+						webcamDecodeError = error instanceof Error ? error : new Error(String(error));
+						throw error;
+					})
+					.finally(() => {
+						if (webcamDecodeError) queue.fail(webcamDecodeError);
+						else queue.close();
+					});
+			};
+			const finishWebcamDecode = async () => {
+				stopWebcamDecode = true;
+				webcamFrameQueue?.destroy();
+				await webcamDecodePromise;
+				webcamFrameQueue = null;
+				webcamDecodePromise = null;
+			};
+			const processDecodedVideoFrame = async (
+				videoFrame: VideoFrame,
+				sourceTimestampMs: number,
+				timelineTimestampMs: number,
+				targetFrameIndex: number,
+			) => {
+				let webcamFrame: VideoFrame | null = null;
+				try {
+					if (this.cancelled) return;
+					while (frameIndex < targetFrameIndex && frameIndex < totalFrames) {
+						if (!usesMediaTimeline) {
+							await this.renderer!.renderBackgroundFrame(
+								(frameIndex * 1_000_000) / this.config.frameRate,
+							);
+						}
+						addRenderedFrame();
+					}
+					if (targetFrameIndex < frameIndex || frameIndex >= totalFrames) return;
+					const webcamSourceTimestampMs = mapScreenSourceToWebcam(
+						sourceTimestampMs,
+						this.config.webcamSync,
+						{ webcamDurationMs: webcamInfo ? webcamInfo.duration * 1000 : undefined },
+					);
+					webcamFrame =
+						webcamFrameQueue && webcamSourceTimestampMs !== null
+							? await webcamFrameQueue.frameAt(webcamSourceTimestampMs)
+							: null;
+					const renderer = this.renderer;
+					if (this.cancelled || !renderer) return;
+					await renderer.renderFrame(
+						videoFrame,
+						timelineTimestampMs * 1000,
+						webcamFrame,
+						sourceTimestampMs * 1000,
+					);
+					addRenderedFrame();
+				} finally {
+					videoFrame.close();
+					webcamFrame?.close();
+				}
+			};
 
 			// Stream decode and process frames, no seeking
-			await this.streamingDecoder.decodeAll(
-				this.config.frameRate,
-				this.config.trimRegions,
-				this.config.speedRegions,
-				async (videoFrame, _exportTimestampUs, sourceTimestampMs) => {
-					let webcamFrame: VideoFrame | null = null;
-					try {
-						if (this.cancelled) {
-							return;
+			if (!this.config.videoTrackHidden) {
+				if (usesMediaTimeline && mediaTiming) {
+					let previousClipEndMs: number | null = null;
+					for (const job of mediaDecodeJobs) {
+						if (
+							previousClipEndMs === null
+								? job.clip.startMs > 0
+								: job.clip.startMs > previousClipEndMs + 0.0001
+						) {
+							const clipStartFrame = frameIndexForTimelineTime(
+								mediaTiming,
+								job.clip.startMs,
+								this.config.frameRate,
+							);
+							while (frameIndex < clipStartFrame && frameIndex < totalFrames) {
+								await this.renderer.renderBackgroundFrame(mediaBackgroundTimestampUs());
+								addRenderedFrame();
+							}
 						}
-
-						webcamFrame = webcamFrameQueue
-							? await webcamFrameQueue.frameAt(sourceTimestampMs)
-							: null;
-						const renderer = this.renderer;
-						if (this.cancelled || !renderer) {
-							return;
+						startWebcamDecode(job.trimRegions, job.speedRegions);
+						try {
+							await this.streamingDecoder.decodeAll(
+								this.config.frameRate,
+								job.trimRegions,
+								job.speedRegions,
+								async (videoFrame, _exportTimestampUs, sourceTimestampMs) => {
+									const timelineTimestampMs =
+										job.clip.startMs + sourceTimestampMs - job.clip.sourceStartMs;
+									await processDecodedVideoFrame(
+										videoFrame,
+										sourceTimestampMs,
+										timelineTimestampMs,
+										frameIndexForTimelineTime(
+											mediaTiming,
+											timelineTimestampMs,
+											this.config.frameRate,
+										),
+									);
+								},
+								onWarning,
+							);
+						} finally {
+							await finishWebcamDecode();
 						}
-
-						const sourceTimestampUs = sourceTimestampMs * 1000; // us
-						await renderer.renderFrame(videoFrame, sourceTimestampUs, webcamFrame);
-
-						const canvas = renderer.getCanvas();
-
-						this.gif!.addFrame(canvas, { delay: frameDelay, copy: true });
-
-						frameIndex++;
-
-						if (this.config.onProgress) {
-							this.config.onProgress({
-								currentFrame: frameIndex,
-								totalFrames,
-								percentage: (frameIndex / totalFrames) * 100,
-								estimatedTimeRemaining: 0,
-							});
-						}
-					} finally {
-						videoFrame.close();
-						webcamFrame?.close();
+						previousClipEndMs = Math.max(previousClipEndMs ?? 0, job.clip.endMs);
 					}
-				},
-				onWarning,
+				} else {
+					startWebcamDecode(this.config.trimRegions, this.config.speedRegions);
+					try {
+						await this.streamingDecoder.decodeAll(
+							this.config.frameRate,
+							this.config.trimRegions,
+							this.config.speedRegions,
+							async (videoFrame, exportTimestampUs, sourceTimestampMs) =>
+								processDecodedVideoFrame(
+									videoFrame,
+									sourceTimestampMs,
+									sourceTimestampMs,
+									frameIndexForExportTimestamp(exportTimestampUs, this.config.frameRate),
+								),
+							onWarning,
+						);
+					} finally {
+						await finishWebcamDecode();
+					}
+				}
+			}
+			const videoTimelineEndMs = Math.max(
+				0,
+				...(this.config.videoTrackClips ?? []).map((clip) => clip.endMs),
 			);
+			while (usesMediaTimeline && frameIndex < totalFrames && !this.cancelled) {
+				if (
+					shouldRenderMediaBackground(
+						Boolean(this.config.videoTrackHidden),
+						timelineMapper.durationMs,
+						videoTimelineEndMs,
+					)
+				) {
+					await this.renderer.renderBackgroundFrame(mediaBackgroundTimestampUs());
+				}
+				addRenderedFrame();
+			}
 
 			if (this.cancelled) {
 				return { success: false, error: "Export cancelled" };
 			}
 
-			stopWebcamDecode = true;
-			webcamFrameQueue?.destroy();
 			this.webcamDecoder?.cancel();
-			await webcamDecodePromise;
 
 			// Now in the finalizing phase
 			if (this.config.onProgress) {
@@ -355,7 +497,7 @@ export class GifExporter {
 				error: error instanceof Error ? error.message : String(error),
 			};
 		} finally {
-			webcamFrameQueue?.destroy();
+			(webcamFrameQueue as TimestampedVideoFrameQueue | null)?.destroy();
 			this.cleanup();
 		}
 	}

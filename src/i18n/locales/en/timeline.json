@@ -19,8 +19,6 @@
 		"pressSpeed": "Press S to add speed"
 	},
 	"labels": {
-		"pan": "Pan",
-		"zoom": "Zoom",
 		"trim": "Trim",
 		"speed": "Speed",
 		"zoomItem": "Zoom {{index}}",

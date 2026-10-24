@@ -5,7 +5,11 @@
 		"addTrim": "Agregar recorte (T)",
 		"addAnnotation": "Agregar anotación (A)",
 		"addSpeed": "Agregar velocidad (S)",
-		"addBlur": "Agregar desenfoque (B)"
+		"addBlur": "Agregar desenfoque (B)",
+		"autoZoomOn": "Sugerencias de zoom automático activadas: haz clic para quitar los zooms sugeridos",
+		"autoZoomOff": "Sugerencias de zoom automático desactivadas: haz clic para sugerir zooms según el cursor",
+		"autoFocusAllOn": "Enfoque automático activado en todos los zooms: haz clic para pasarlos a manual",
+		"autoFocusAllOff": "Enfoque automático en todos los zooms (la cámara sigue al cursor)"
 	},
 	"hints": {
 		"pressZoom": "Presiona Z para agregar zoom",
@@ -15,8 +19,6 @@
 		"pressBlur": "Presiona B para agregar una región de desenfoque"
 	},
 	"labels": {
-		"pan": "Desplazar",
-		"zoom": "Zoom",
 		"trim": "Recortar",
 		"speed": "Velocidad",
 		"zoomItem": "Zoom {{index}}",

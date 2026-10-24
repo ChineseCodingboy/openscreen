@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import sampleVideoUrl from "../../../tests/fixtures/sample.webm?url";
 import { BackgroundLoadError } from "../wallpaper";
+import { FrameRenderer } from "./frameRenderer";
 import type { ExportProgress } from "./types";
 import { VideoExporter } from "./videoExporter";
 
@@ -40,6 +41,91 @@ describe("VideoExporter (real browser)", () => {
 		const finalizing = progressEvents.filter((p) => p.phase === "finalizing");
 		expect(finalizing.length).toBeGreaterThan(0);
 		expect(finalizing.at(-1)!.percentage).toBe(100);
+	});
+
+	it("burns auto captions through the lightweight resized export path", async () => {
+		const fullCompositeRender = vi.spyOn(FrameRenderer.prototype, "renderFrame");
+		try {
+			const exporter = new VideoExporter({
+				videoUrl: sampleVideoUrl,
+				width: 320,
+				height: 180,
+				frameRate: 60,
+				bitrate: 500_000,
+				wallpaper: "#1a1a2e",
+				zoomRegions: [],
+				annotationRegions: [
+					{
+						id: "caption",
+						startMs: 0,
+						endMs: 1000,
+						type: "text",
+						content: "Fast caption",
+						annotationSource: "auto-caption",
+						position: { x: 5, y: 75 },
+						size: { width: 90, height: 20 },
+						style: {
+							color: "#ffffff",
+							backgroundColor: "rgba(0, 0, 0, 0.72)",
+							fontSize: 24,
+							fontFamily: "Arial",
+							fontWeight: "bold",
+							fontStyle: "normal",
+							textDecoration: "none",
+							textAlign: "center",
+						},
+						zIndex: 1,
+					},
+				],
+				previewWidth: 640,
+				previewHeight: 480,
+				padding: 50,
+				showShadow: false,
+				shadowIntensity: 0,
+				showBlur: false,
+				cropRegion: { x: 0, y: 0, width: 1, height: 1 },
+			});
+
+			const result = await exporter.export();
+
+			expect(result.success, result.error).toBe(true);
+			expect(result.path).toBe("direct-transcode");
+			expect(result.blob!.size).toBeGreaterThan(1024);
+			expect(fullCompositeRender).not.toHaveBeenCalled();
+			expect(result.diagnostics?.frameRate).toBe(15);
+		} finally {
+			fullCompositeRender.mockRestore();
+		}
+	});
+
+	it("renders every speed-adjusted media frame from the background when video is hidden", async () => {
+		const renderBackground = vi.spyOn(FrameRenderer.prototype, "renderBackgroundFrame");
+		try {
+			const exporter = new VideoExporter({
+				videoUrl: sampleVideoUrl,
+				width: 320,
+				height: 180,
+				frameRate: 30,
+				bitrate: 1_000_000,
+				wallpaper: "#1a1a2e",
+				zoomRegions: [],
+				videoTrackClips: [{ id: "hidden", startMs: 0, endMs: 1000, sourceStartMs: 0 }],
+				videoTrackHidden: true,
+				speedRegions: [{ id: "fast", startMs: 0, endMs: 1000, speed: 2 }],
+				showShadow: false,
+				shadowIntensity: 0,
+				showBlur: false,
+				cropRegion: { x: 0, y: 0, width: 1, height: 1 },
+			});
+
+			const result = await exporter.export();
+
+			expect(result.success, result.error).toBe(true);
+			expect(result.diagnostics?.frameCount).toBe(8);
+			expect(renderBackground).toHaveBeenCalledTimes(8);
+		} finally {
+			renderBackground.mockRestore();
+		}
 	});
 
 	it("exports successfully with an image wallpaper (served by Vite dev server)", async () => {

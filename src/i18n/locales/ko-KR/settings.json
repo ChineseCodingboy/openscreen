@@ -9,7 +9,8 @@
 			"title": "포커스 모드",
 			"manual": "수동",
 			"auto": "자동",
-			"autoDescription": "녹화된 커서 위치를 따라 카메라가 이동합니다"
+			"autoDescription": "녹화된 커서 위치를 따라 카메라가 이동합니다",
+			"lockedDisclaimer": "타임라인의 전역 자동 초점 토글로 제어됩니다. 줌별로 초점 모드를 설정하려면 끄세요."
 		},
 		"threeD": {
 			"title": "3D 회전",
@@ -68,7 +69,10 @@
 		"uploadCustom": "직접 업로드",
 		"gradientLabel": "그라디언트 {{index}}",
 		"colorWheel": "색상 휠",
-		"colorPalette": "색상 팔레트"
+		"colorPalette": "색상 팔레트",
+		"withBackground": "배경 있음",
+		"noBackground": "배경 없음",
+		"noBackgroundDescription": "녹화 화면만 가장자리까지 표시하며 내보내기 결과는 미리보기와 같습니다."
 	},
 	"crop": {
 		"title": "자르기",
@@ -92,7 +96,8 @@
 		"title": "내보내기 해상도",
 		"low": "720p",
 		"medium": "1080p",
-		"high": "Source"
+		"high": "Original",
+		"source": "Source"
 	},
 	"gifSettings": {
 		"frameRate": "GIF 프레임 속도",
@@ -108,11 +113,6 @@
 		"videoButton": "비디오 내보내기",
 		"gifButton": "GIF 내보내기",
 		"chooseSaveLocation": "저장 위치 선택"
-	},
-	"support": {
-		"reportBug": "버그 신고",
-		"saveDiagnostics": "Save Diagnostics",
-		"starOnGithub": "GitHub에 Star 남기기"
 	},
 	"imageUpload": {
 		"invalidFileType": "지원하지 않는 파일 형식입니다",
@@ -216,7 +216,10 @@
 		"smoothing": "부드러움",
 		"motionBlur": "모션 블러",
 		"clickBounce": "클릭 바운스",
-		"clipToBounds": "캔버스에 맞춰 자르기"
+		"clipToBounds": "캔버스에 맞춰 자르기",
+		"smartMotion": "스마트 모션",
+		"smartMotionDescription": "중요한 정지점과 상호작용만 남기고 실수로 움직인 경로를 부드러운 직선 이동으로 정리합니다.",
+		"clipToBoundsDescription": "커서를 비디오 프레임 안에 유지합니다. 끄면 커서가 가장자리를 벗어날 수 있어 확대나 이동 시 유용합니다."
 	},
 	"language": {
 		"title": "언어"

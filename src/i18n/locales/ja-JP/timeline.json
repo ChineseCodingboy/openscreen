@@ -5,7 +5,11 @@
 		"addTrim": "トリムを追加 (T)",
 		"addAnnotation": "注釈を追加 (A)",
 		"addBlur": "ぼかしを追加 (B)",
-		"addSpeed": "再生速度を追加 (S)"
+		"addSpeed": "再生速度を追加 (S)",
+		"autoZoomOn": "自動ズーム提案オン — クリックで提案されたズームを削除",
+		"autoZoomOff": "自動ズーム提案オフ — クリックでカーソルからズームを提案",
+		"autoFocusAllOn": "全ズームで自動フォーカスオン — クリックですべて手動に切り替え",
+		"autoFocusAllOff": "全ズームを自動フォーカス(カメラがカーソルを追従)"
 	},
 	"hints": {
 		"pressZoom": "Zキーを押してズームを追加",
@@ -15,8 +19,6 @@
 		"pressSpeed": "Sキーを押して再生速度を追加"
 	},
 	"labels": {
-		"pan": "移動",
-		"zoom": "ズーム",
 		"trim": "トリム",
 		"speed": "再生速度",
 		"zoomItem": "ズーム {{index}}",

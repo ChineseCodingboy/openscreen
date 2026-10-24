@@ -21,7 +21,9 @@
 		"addBlur": "Adicionar Desfoque",
 		"addKeyframe": "Adicionar Quadro-chave",
 		"deleteSelected": "Excluir Selecionado",
-		"playPause": "Reproduzir / Pausar"
+		"playPause": "Reproduzir / Pausar",
+		"openApp": "Abrir o app",
+		"summonHud": "Mostrar barra de gravação"
 	},
 	"fixedActions": {
 		"undo": "Desfazer",
@@ -29,9 +31,8 @@
 		"cycleAnnotationsForward": "Alternar Anotações (Próximo)",
 		"cycleAnnotationsBackward": "Alternar Anotações (Anterior)",
 		"deleteSelectedAlt": "Excluir Selecionado (alt)",
-		"panTimeline": "Mover Linha do Tempo",
-		"zoomTimeline": "Zoom na Linha do Tempo",
 		"frameBack": "Quadro Anterior",
 		"frameForward": "Próximo Quadro"
-	}
+	},
+	"registrationFailed": "Falha ao registrar o atalho. Ele pode estar em uso por outro app. Tente outra tecla."
 }

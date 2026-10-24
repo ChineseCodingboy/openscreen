@@ -5,7 +5,11 @@
 		"addTrim": "添加剪辑 (T)",
 		"addAnnotation": "添加标注 (A)",
 		"addSpeed": "添加速度 (S)",
-		"addBlur": "添加模糊 (B)"
+		"addBlur": "添加模糊 (B)",
+		"autoZoomOn": "自动缩放建议已开启——点击移除建议的缩放",
+		"autoZoomOff": "自动缩放建议已关闭——点击根据光标生成建议缩放",
+		"autoFocusAllOn": "所有缩放已开启自动跟随——点击全部切换为手动",
+		"autoFocusAllOff": "全部缩放自动跟随(镜头跟随光标)"
 	},
 	"hints": {
 		"pressZoom": "按 Z 添加缩放",
@@ -15,8 +19,6 @@
 		"pressBlur": "按 B 添加模糊区域"
 	},
 	"labels": {
-		"pan": "平移",
-		"zoom": "缩放",
 		"trim": "剪辑",
 		"speed": "速度",
 		"zoomItem": "缩放 {{index}}",

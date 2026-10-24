@@ -1,5 +1,6 @@
 import type React from "react";
 import type { SpeedRegion, TrimRegion } from "../types";
+import { videoElementOwnsPreviewTransport } from "./previewTransport";
 
 // Keep "scrub mode" on for a brief tail after `seeked`: rapid drag-scrubbing fires
 // `seeking`/`seeked` dozens of times a second and toggling effects each time would flicker.
@@ -19,6 +20,8 @@ interface VideoEventHandlersParams {
 	isScrubbingRef?: React.MutableRefObject<boolean>;
 	scrubEndTimerRef?: React.MutableRefObject<number | null>;
 	onScrubChange?: (scrubbing: boolean) => void;
+	/** A media-track timeline owns the transport clock outside this helper. */
+	externalTransportActiveRef?: React.MutableRefObject<boolean>;
 }
 
 export function createVideoEventHandlers(params: VideoEventHandlersParams) {
@@ -36,6 +39,7 @@ export function createVideoEventHandlers(params: VideoEventHandlersParams) {
 		isScrubbingRef,
 		scrubEndTimerRef,
 		onScrubChange,
+		externalTransportActiveRef,
 	} = params;
 
 	const clearScrubEndTimer = () => {
@@ -90,7 +94,7 @@ export function createVideoEventHandlers(params: VideoEventHandlersParams) {
 			emitTime(video.currentTime);
 		}
 
-		if (!video.paused && !video.ended) {
+		if (!externalTransportActiveRef?.current && !video.paused && !video.ended) {
 			timeUpdateAnimationRef.current = requestAnimationFrame(updateTime);
 		}
 	}
@@ -106,17 +110,23 @@ export function createVideoEventHandlers(params: VideoEventHandlersParams) {
 			return;
 		}
 
-		isPlayingRef.current = true;
-		onPlayStateChange(true);
+		if (videoElementOwnsPreviewTransport(externalTransportActiveRef?.current ?? false)) {
+			isPlayingRef.current = true;
+			onPlayStateChange(true);
+		}
 		if (timeUpdateAnimationRef.current) {
 			cancelAnimationFrame(timeUpdateAnimationRef.current);
 		}
-		timeUpdateAnimationRef.current = requestAnimationFrame(updateTime);
+		if (!externalTransportActiveRef?.current) {
+			timeUpdateAnimationRef.current = requestAnimationFrame(updateTime);
+		}
 	};
 
 	const handlePause = () => {
-		isPlayingRef.current = false;
-		onPlayStateChange(false);
+		if (videoElementOwnsPreviewTransport(externalTransportActiveRef?.current ?? false)) {
+			isPlayingRef.current = false;
+			onPlayStateChange(false);
+		}
 		if (timeUpdateAnimationRef.current) {
 			cancelAnimationFrame(timeUpdateAnimationRef.current);
 			timeUpdateAnimationRef.current = null;

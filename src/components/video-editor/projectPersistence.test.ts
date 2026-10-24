@@ -23,7 +23,7 @@ describe("projectPersistence media compatibility", () => {
 		});
 	});
 
-	it("creates version 2 projects with explicit media", () => {
+	it("creates v6 projects with explicit media", () => {
 		const project = createProjectData(
 			{
 				screenVideoPath: "/tmp/screen.webm",
@@ -63,6 +63,60 @@ describe("projectPersistence media compatibility", () => {
 		expect(validateProjectData(project)).toBe(true);
 	});
 
+	it("preserves the recording's physical audio layout in project media", () => {
+		const media = resolveProjectMedia({
+			media: {
+				screenVideoPath: "/tmp/screen.mp4",
+				audioTracks: [{ ordinal: 0, role: "microphone" }],
+			},
+		});
+		expect(media).toEqual({
+			screenVideoPath: "/tmp/screen.mp4",
+			audioTracks: [{ ordinal: 0, role: "microphone" }],
+		});
+	});
+
+	it("migrates v4 global stream indices to 0-based audio-track ordinals", () => {
+		const editor = normalizeProjectEditor({
+			audioTrackClips: [
+				{
+					id: "legacy-microphone",
+					source: "microphone",
+					streamIndex: 2,
+					startMs: 0,
+					endMs: 1000,
+					sourceStartMs: 0,
+					muted: false,
+					gain: 1,
+				} as never,
+			],
+		});
+		expect(editor.audioTrackClips).toEqual([
+			expect.objectContaining({ role: "microphone", trackOrdinal: 1 }),
+		]);
+	});
+
+	it("fills missing timeline tracks while preserving supplied controls", () => {
+		const editor = normalizeProjectEditor({
+			timelineTracks: [
+				{
+					id: "custom-video",
+					kind: "video",
+					order: 4,
+					locked: true,
+					muted: false,
+					hidden: false,
+				},
+			],
+		});
+		expect(editor.timelineTracks).toHaveLength(6);
+		expect(editor.timelineTracks.find((track) => track.kind === "video")).toMatchObject({
+			id: "custom-video",
+			locked: true,
+		});
+		expect(editor.timelineTracks.find((track) => track.kind === "audio")).toBeDefined();
+	});
+
 	it("normalizes webcam mask shape values safely", () => {
 		expect(normalizeProjectEditor({ webcamMaskShape: "rounded" }).webcamMaskShape).toBe("rounded");
 		expect(
@@ -74,6 +128,69 @@ describe("projectPersistence media compatibility", () => {
 		expect(normalizeProjectEditor({ webcamMirrored: true }).webcamMirrored).toBe(true);
 		expect(normalizeProjectEditor({ webcamMirrored: false }).webcamMirrored).toBe(false);
 		expect(normalizeProjectEditor({ webcamMirrored: "yes" as never }).webcamMirrored).toBe(false);
+	});
+
+	it("keeps legacy smart cursor off while preserving an explicit selection", () => {
+		expect(normalizeProjectEditor({}).smartCursorEnabled).toBe(false);
+		expect(normalizeProjectEditor({ smartCursorEnabled: true }).smartCursorEnabled).toBe(true);
+	});
+
+	it("normalizes synchronized zoom-in duration to the region span", () => {
+		const editor = normalizeProjectEditor({
+			zoomRegions: [
+				{
+					id: "auto-1",
+					startMs: 100,
+					endMs: 500,
+					depth: 6,
+					focus: { cx: 0.5, cy: 0.5 },
+					zoomInDurationMs: 900,
+				},
+			],
+		});
+
+		expect(editor.zoomRegions[0].zoomInDurationMs).toBe(400);
+	});
+
+	it("round-trips professional auto-camera metadata without upgrading legacy regions", () => {
+		const editor = normalizeProjectEditor({
+			zoomRegions: [
+				{
+					id: "professional",
+					startMs: 100,
+					endMs: 1700,
+					zoomInDurationMs: 500,
+					zoomOutDurationMs: 620,
+					motionProfile: "professional-v2",
+					triggerTimeMs: 520,
+					confidence: 0.84,
+					focusSpace: "source",
+					focus: { cx: 0.25, cy: 0.4 },
+					focusEnd: { cx: 0.7, cy: 0.65 },
+					targetBounds: { x: 0.2, y: 0.35, width: 0.12, height: 0.08 },
+					customScale: 2.42,
+					depth: 3,
+					source: "auto",
+				},
+				{
+					id: "legacy",
+					startMs: 2000,
+					endMs: 3000,
+					depth: 3,
+					focus: { cx: 0.5, cy: 0.5 },
+				},
+			],
+		});
+
+		expect(editor.zoomRegions[0]).toMatchObject({
+			motionProfile: "professional-v2",
+			zoomOutDurationMs: 620,
+			triggerTimeMs: 520,
+			focusSpace: "source",
+			focusEnd: { cx: 0.7, cy: 0.65 },
+			customScale: 2.42,
+		});
+		expect(editor.zoomRegions[1].motionProfile).toBeUndefined();
 	});
 
 	it("normalizes blur region type and mosaic block size safely", () => {
@@ -262,5 +379,89 @@ describe("wallpaper legacy normalization", () => {
 			wallpaper: "file:///opt/Openscreen/resources/wallpapers/wallpaper99.jpg",
 		});
 		expect(normalized.wallpaper).toBe("/wallpapers/wallpaper1.jpg");
+	});
+});
+
+describe("projectPersistence voiceover (v7)", () => {
+	it("round-trips a file-backed voice-over clip and voiceover metadata", () => {
+		const editor = normalizeProjectEditor({
+			audioTrackClips: [
+				{
+					id: "audio-voiceover",
+					role: "voiceover",
+					trackOrdinal: 1000,
+					startMs: 0,
+					endMs: 60_000,
+					sourceStartMs: 0,
+					muted: false,
+					gain: 1,
+					linkGroupId: "voiceover",
+					sourcePath: "/tmp/voiceover/recording.abc123.voiceover.1700000000000.wav",
+				},
+				{
+					id: "audio-mixed-0",
+					role: "mixed",
+					trackOrdinal: 0,
+					startMs: 0,
+					endMs: 60_000,
+					sourceStartMs: 0,
+					muted: true,
+					gain: 1,
+					linkGroupId: "media-screen-1",
+				},
+			],
+			voiceover: {
+				audioPath: "/tmp/voiceover/recording.abc123.voiceover.1700000000000.wav",
+				voice: "nova",
+				style: "energetic",
+				polish: false,
+				quality: "standard",
+				language: "English",
+				utterances: [{ startMs: 100, endMs: 2000, text: "打开设置" }],
+				generatedAtMs: 1_700_000_000_000,
+			},
+		});
+
+		const voiceoverClip = editor.audioTrackClips.find((clip) => clip.role === "voiceover");
+		expect(voiceoverClip).toMatchObject({
+			trackOrdinal: 1000,
+			sourcePath: "/tmp/voiceover/recording.abc123.voiceover.1700000000000.wav",
+			linkGroupId: "voiceover",
+		});
+		expect(editor.voiceover).toEqual({
+			audioPath: "/tmp/voiceover/recording.abc123.voiceover.1700000000000.wav",
+			voice: "nova",
+			style: "energetic",
+			polish: false,
+			quality: "standard",
+			language: "English",
+			utterances: [{ startMs: 100, endMs: 2000, text: "打开设置" }],
+			generatedAtMs: 1_700_000_000_000,
+		});
+
+		// Legacy v7 payloads without quality/language get safe defaults.
+		const legacy = normalizeProjectEditor({
+			voiceover: {
+				audioPath: "/tmp/voiceover/a.wav",
+				voice: "ash",
+				style: "sleek",
+				polish: true,
+				utterances: [],
+				generatedAtMs: 1,
+			} as never,
+		});
+		expect(legacy.voiceover).toMatchObject({ quality: "hd", language: null });
+
+		// Full serialize → parse → normalize cycle keeps both intact.
+		const reloaded = normalizeProjectEditor(JSON.parse(JSON.stringify(editor)) as typeof editor);
+		expect(reloaded.audioTrackClips).toEqual(editor.audioTrackClips);
+		expect(reloaded.voiceover).toEqual(editor.voiceover);
+	});
+
+	it("drops invalid voiceover metadata and keeps physical clips intact", () => {
+		const editor = normalizeProjectEditor({
+			voiceover: { voice: "nova" } as never,
+		});
+		expect(editor.voiceover).toBeNull();
 	});
 });

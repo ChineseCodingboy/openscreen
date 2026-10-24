@@ -47,7 +47,8 @@
 	"autoCaptions": {
 		"button": "Otomatik altyazılar",
 		"dialogTitle": "Otomatik altyazılar",
-		"dialogDescription": "Her altyazının aynı anda yaklaşık kaç kelime göstermesini istediğinizi seçin. Zamanlama, o ifadedeki kelimelere dağıtılır.",
+		"dialogDescription": "Altyazılar otomatik olarak doğal ve okunabilir ifadelere ayrılır.",
+		"adaptiveHint": "Kelime sayısı ayarlamanız gerekmez. Duraklamalar, noktalama, konuşma hızı ve metin genişliği otomatik dengelenir.",
 		"minWords": "Altyazı başına en az kelime",
 		"maxWords": "Altyazı başına en fazla kelime",
 		"wordsCount": "{{count}} kelime",
@@ -63,6 +64,42 @@
 		"failed": "Altyazılar oluşturulamadı.",
 		"truncated": "Yalnızca ilk {{minutes}} dakika yazıya döküldü."
 	},
+	"voiceover": {
+		"dialogTitle": "Yapay zekâ seslendirme",
+		"dialogDescription": "Transkripti temiz, standart bir sesle okur ve orijinal ses parçasının yerini alır.",
+		"tabCaptions": "Altyazılar",
+		"tabVoiceover": "YZ seslendirme",
+		"voice": "Ses",
+		"style": "Stil",
+		"styles": {
+			"sleek": "Şık ve premium",
+			"energetic": "Enerjik",
+			"broadcast": "Spiker",
+			"conversational": "Günlük konuşma"
+		},
+		"polish": "Transkripti düzelt (dolgu sözcükleri kaldır)",
+		"replaceOriginal": "Orijinal sesi değiştir (sessize al)",
+		"hint": "Zaman çizelgesindeki altyazılar senaryodur: söyleneni değiştirmek için önce altyazı metnini düzenleyin. Altyazı yoksa konuşma otomatik olarak transkribe edilir.",
+		"generate": "Seslendirme oluştur",
+		"regenerate": "Seslendirmeyi yeniden oluştur",
+		"remove": "Seslendirmeyi kaldır",
+		"transcribing": "Konuşma transkribe ediliyor…",
+		"synthesizing": "Ses sentezleniyor {{done}}/{{total}}…",
+		"saving": "Ses parçası kaydediliyor…",
+		"done": "Seslendirme zaman çizelgesine eklendi.",
+		"compressedNote": "{{count}} cümle zamanlamaya sığması için hafifçe hızlandırıldı.",
+		"removed": "Seslendirme kaldırıldı, orijinal ses geri yüklendi.",
+		"failed": "Seslendirme oluşturulamadı.",
+		"busy": "Seslendirme zaten oluşturuluyor.",
+		"quality": "Kalite",
+		"qualityHd": "Yüksek doğruluk",
+		"qualityStandard": "Standart (daha ucuz)",
+		"targetLanguage": "Hedef dil",
+		"sourceLanguage": "Orijinal dil (çeviri yok)",
+		"syncCaptions": "Zaman çizelgesi altyazılarını da çevir",
+		"translating": "Senaryo çevriliyor…",
+		"hdCostHint": "Yüksek doğruluk gpt-audio modellerini kullanır (dakika başına ≈$0,1–0,2 ses)."
+	},
 	"emptyState": {
 		"title": "Açık proje yok",
 		"description": "Düzenlemeye başlamak için bir video içe aktarın veya mevcut bir OpenScreen projesi yükleyin.",
@@ -77,5 +114,26 @@
 			"couldNotOpenTitle": "Dosya Açılamadı",
 			"couldNotOpenMessage": "Proje dosyası açılamadı. Başvurulan video taşınmış veya silinmiş olabilir."
 		}
+	},
+	"background": {
+		"withBackground": "Background",
+		"noBackground": "No background",
+		"noBackgroundDescription": "Show only the recorded page edge-to-edge. Export will match the preview."
+	},
+	"mediaLibrary": {
+		"title": "Media Library",
+		"subtitle": "Your recordings and saved projects",
+		"back": "Back to editor",
+		"refresh": "Refresh",
+		"openFromComputer": "Open from computer",
+		"loading": "Loading library…",
+		"loadError": "Could not load the media library.",
+		"retry": "Try again",
+		"emptyTitle": "No recordings yet",
+		"emptyDescription": "Start a recording or open a video from your computer.",
+		"newRecording": "New recording",
+		"project": "Project",
+		"recording": "Recording",
+		"edited": "Project saved"
 	}
 }

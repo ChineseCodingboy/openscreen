@@ -11,6 +11,36 @@ interface DesktopSource {
 	thumbnail: string | null;
 	display_id: string;
 	appIcon: string | null;
+	/** Window found only by native enumeration (typically full-screen on another Space). */
+	fromOtherSpace?: boolean;
+}
+
+/** System artifacts desktopCapturer reports as windows but that make no sense to record. */
+const JUNK_WINDOW_NAMES = new Set([
+	"App Icon Window",
+	"Gesture Blocking Overlay",
+	"Item-0",
+	"Window Server",
+	"Dock",
+	"Notification Center",
+	"Control Center",
+	"Control Centre",
+	"Wallpaper",
+	"Spotlight",
+	"Menubar",
+	"StatusIndicator",
+]);
+
+function isJunkWindowSource(id: string, ...names: string[]): boolean {
+	if (!id.startsWith("window:")) return false;
+	const meaningful = names.map((name) => name.trim()).filter(Boolean);
+	if (meaningful.length === 0) return true;
+	return meaningful.some((name) => JUNK_WINDOW_NAMES.has(name));
+}
+
+function windowIdFromSourceId(id: string): string | null {
+	if (!id.startsWith("window:")) return null;
+	return id.split(":")[1] ?? null;
 }
 
 export function SourceSelector() {
@@ -27,11 +57,11 @@ export function SourceSelector() {
 		try {
 			const rawSources = await window.electronAPI.getSources({
 				types: ["screen", "window"],
-				thumbnailSize: { width: 320, height: 180 },
+				thumbnailSize: { width: 1280, height: 720 },
 				fetchWindowIcons: true,
 			});
-			setSources(
-				rawSources.map((source) => ({
+			const mappedSources = rawSources
+				.map((source) => ({
 					id: source.id,
 					name:
 						source.id.startsWith("window:") && source.name.includes(" — ")
@@ -40,17 +70,54 @@ export function SourceSelector() {
 					thumbnail: source.thumbnail,
 					display_id: source.display_id,
 					appIcon: source.appIcon,
-				})),
-			);
+				}))
+				.filter((source) => !isJunkWindowSource(source.id, source.name));
+			setSources(mappedSources);
 			setSelectedSource((current) =>
-				current && rawSources.some((source) => source.id === current.id) ? current : null,
+				current && mappedSources.some((source) => source.id === current.id) ? current : null,
 			);
+			setLoading(false);
+
+			// Second phase: windows on other Spaces (full-screen apps) are invisible to
+			// desktopCapturer, so append them from the native ScreenCaptureKit list once
+			// its screenshots are ready.
+			const nativeResult = await window.electronAPI.listNativeWindows?.().catch((error) => {
+				console.warn("listNativeWindows failed:", error);
+				return null;
+			});
+			if (nativeResult && !nativeResult.success) {
+				console.warn("listNativeWindows returned an error:", nativeResult.message);
+			}
+			if (nativeResult?.success && nativeResult.windows?.length) {
+				const knownWindowIds = new Set(
+					mappedSources
+						.map((source) => windowIdFromSourceId(source.id))
+						.filter((id): id is string => id !== null),
+				);
+				const extraSources: DesktopSource[] = nativeResult.windows
+					.filter((win) => !knownWindowIds.has(String(win.windowId)))
+					.filter((win) => win.appName !== "Openscreen")
+					.filter((win) => !isJunkWindowSource(win.id, win.title, win.appName))
+					.map((win) => ({
+						id: win.id,
+						name: win.title || win.name,
+						thumbnail: win.thumbnail,
+						display_id: "",
+						appIcon: null,
+						fromOtherSpace: true,
+					}));
+				if (extraSources.length > 0) {
+					setSources((current) => {
+						const currentIds = new Set(current.map((source) => source.id));
+						return [...current, ...extraSources.filter((source) => !currentIds.has(source.id))];
+					});
+				}
+			}
 		} catch (error) {
 			console.error("Error loading sources:", error);
 			setSources([]);
 			setSelectedSource(null);
 			setLoadFailed(true);
-		} finally {
 			setLoading(false);
 		}
 	}, []);
@@ -128,6 +195,11 @@ export function SourceSelector() {
 							<div className={styles.checkBadge}>
 								<MdCheck size={11} className="text-white" />
 							</div>
+						</div>
+					)}
+					{source.fromOtherSpace && (
+						<div className="absolute left-1.5 top-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[9px] font-medium text-white/90">
+							{t("sourceSelector.otherSpace")}
 						</div>
 					)}
 				</div>

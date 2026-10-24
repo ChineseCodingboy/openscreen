@@ -1,5 +1,6 @@
 export const SHORTCUT_ACTIONS = [
 	"openApp",
+	"summonHud",
 	"addZoom",
 	"addTrim",
 	"addSpeed",
@@ -58,13 +59,6 @@ export const FIXED_SHORTCUTS: FixedShortcut[] = [
 		display: "Del / ⌫",
 		bindings: [{ key: "delete" }, { key: "backspace" }],
 	},
-	{
-		i18nKey: "panTimeline",
-		label: "Pan Timeline",
-		display: "Shift + Ctrl + Scroll",
-		bindings: [],
-	},
-	{ i18nKey: "zoomTimeline", label: "Zoom Timeline", display: "Ctrl + Scroll", bindings: [] },
 	{ i18nKey: "frameBack", label: "Frame Back", display: "←", bindings: [{ key: "arrowleft" }] },
 	{
 		i18nKey: "frameForward",
@@ -107,6 +101,7 @@ export function findConflict(
 
 export const DEFAULT_SHORTCUTS: ShortcutsConfig = {
 	openApp: { key: "o", ctrl: true, shift: true },
+	summonHud: { key: "h", alt: true },
 	addZoom: { key: "z" },
 	addTrim: { key: "t" },
 	addSpeed: { key: "s" },
@@ -119,6 +114,7 @@ export const DEFAULT_SHORTCUTS: ShortcutsConfig = {
 
 export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
 	openApp: "Open App",
+	summonHud: "Show Recording Bar",
 	addZoom: "Add Zoom",
 	addTrim: "Add Trim",
 	addSpeed: "Add Speed",

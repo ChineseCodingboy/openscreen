@@ -8,7 +8,8 @@
 			"title": "Modo de Foco",
 			"manual": "Manual",
 			"auto": "Automático",
-			"autoDescription": "A câmera segue a posição do cursor gravado"
+			"autoDescription": "A câmera segue a posição do cursor gravado",
+			"lockedDisclaimer": "Controlado pelo botão global de foco automático na linha do tempo. Desligue-o para definir o modo de foco por zoom."
 		},
 		"threeD": {
 			"title": "Rotação 3D",
@@ -23,7 +24,8 @@
 			"x": "X (%)",
 			"y": "Y (%)",
 			"hint": "0 = mais à esquerda / topo, 100 = mais à direita / inferior"
-		}
+		},
+		"previewHold": "Segure para pré-visualizar o efeito de zoom"
 	},
 	"speed": {
 		"playbackSpeed": "Velocidade de Reprodução",
@@ -46,7 +48,8 @@
 		"webcamShape": "Formato da Câmera",
 		"webcamSize": "Tamanho da Webcam",
 		"reactiveWebcam": "Encolher ao ampliar",
-		"reactiveWebcamDescription": "A câmera diminui suavemente enquanto o vídeo está ampliado, para não atrapalhar."
+		"reactiveWebcamDescription": "A câmera diminui suavemente enquanto o vídeo está ampliado, para não atrapalhar.",
+		"mirrorWebcam": "Espelhar webcam"
 	},
 	"effects": {
 		"title": "Efeitos de Vídeo",
@@ -66,7 +69,10 @@
 		"uploadCustom": "Enviar Personalizada",
 		"gradientLabel": "Gradiente {{index}}",
 		"colorWheel": "Roda de Cores",
-		"colorPalette": "Paleta de Cores"
+		"colorPalette": "Paleta de Cores",
+		"withBackground": "Com fundo",
+		"noBackground": "Sem fundo",
+		"noBackgroundDescription": "Mostra apenas a gravação de ponta a ponta. A exportação corresponderá à prévia."
 	},
 	"crop": {
 		"title": "Cortar",
@@ -90,7 +96,8 @@
 		"title": "Qualidade de Exportação",
 		"low": "Baixa",
 		"medium": "Média",
-		"high": "Alta"
+		"high": "Original",
+		"source": "Source"
 	},
 	"gifSettings": {
 		"frameRate": "Taxa de Quadros do GIF",
@@ -99,17 +106,15 @@
 	},
 	"project": {
 		"save": "Salvar Projeto",
-		"load": "Carregar Projeto"
+		"load": "Carregar Projeto",
+		"new": "Novo projeto"
 	},
 	"export": {
 		"videoButton": "Exportar Vídeo",
 		"gifButton": "Exportar GIF",
 		"chooseSaveLocation": "Escolher Local para Salvar"
 	},
-	"links": {
-		"reportBug": "Relatar Bug",
-		"starOnGithub": "Dar Estrela no GitHub"
-	},
+	"links": {},
 	"imageUpload": {
 		"invalidFileType": "Tipo de arquivo inválido",
 		"jpgOnly": "Por favor, envie um arquivo de imagem JPG ou JPEG.",
@@ -202,9 +207,26 @@
 		"motionBlur": "Desfoque de movimento",
 		"clickBounce": "Rebote ao clicar",
 		"clipToBounds": "Recortar à tela",
+		"smartMotion": "Movimento inteligente",
+		"smartMotionDescription": "Mantém as pausas e interações importantes e substitui desvios acidentais por um trajeto direto e suave.",
 		"clipToBoundsDescription": "Mantém o cursor dentro do quadro do vídeo. Desative para permitir que o cursor ultrapasse as bordas — útil ao aplicar zoom ou ao deslocar."
 	},
 	"language": {
 		"title": "Idioma"
+	},
+	"textAnimation": {
+		"title": "Animação de texto",
+		"selectAnimation": "Selecionar animação",
+		"none": "Nenhuma",
+		"fade": "Esmaecer",
+		"rise": "Subir",
+		"pop": "Pop",
+		"slideLeft": "Deslizar à esquerda",
+		"typewriter": "Máquina de escrever",
+		"pulse": "Pulsar"
+	},
+	"timeline": {
+		"title": "Linha do tempo",
+		"waveform": "Mostrar forma de onda na trilha de corte"
 	}
 }

@@ -9,7 +9,8 @@
 			"title": "Modalità messa a fuoco",
 			"manual": "Manuale",
 			"auto": "Automatico",
-			"autoDescription": "La fotocamera segue la posizione del cursore registrato"
+			"autoDescription": "La fotocamera segue la posizione del cursore registrato",
+			"lockedDisclaimer": "Controllato dall'interruttore globale Auto-Focus nella timeline. Disattivalo per impostare la modalità di messa a fuoco per singolo zoom."
 		},
 		"threeD": {
 			"title": "Rotazione 3D",
@@ -68,7 +69,10 @@
 		"uploadCustom": "Carica personalizzato",
 		"gradientLabel": "Sfumatura {{index}}",
 		"colorWheel": "Ruota dei colori",
-		"colorPalette": "Tavolozza dei colori"
+		"colorPalette": "Tavolozza dei colori",
+		"withBackground": "Con sfondo",
+		"noBackground": "Senza sfondo",
+		"noBackgroundDescription": "Mostra solo la registrazione a tutto schermo. L’esportazione corrisponderà all’anteprima."
 	},
 	"crop": {
 		"title": "Ritaglia",
@@ -92,7 +96,8 @@
 		"title": "Risoluzione esportazione",
 		"low": "720p",
 		"medium": "1080p",
-		"high": "Originale"
+		"high": "Original",
+		"source": "Source"
 	},
 	"gifSettings": {
 		"frameRate": "Frequenza fotogrammi GIF",
@@ -101,17 +106,13 @@
 	},
 	"project": {
 		"save": "Salva progetto",
-		"load": "Carica progetto"
+		"load": "Carica progetto",
+		"new": "Nuovo progetto"
 	},
 	"export": {
 		"videoButton": "Esporta video",
 		"gifButton": "Esporta GIF",
 		"chooseSaveLocation": "Scegli posizione di salvataggio"
-	},
-	"support": {
-		"reportBug": "Segnala bug",
-		"saveDiagnostics": "Salva dati diagnostici",
-		"starOnGithub": "Metti stella su GitHub"
 	},
 	"imageUpload": {
 		"invalidFileType": "Tipo di file non valido",
@@ -215,7 +216,10 @@
 		"smoothing": "Smussatura",
 		"motionBlur": "Sfocatura movimento",
 		"clickBounce": "Rimbalzo clic",
-		"clipToBounds": "Ritaglia al canvas"
+		"clipToBounds": "Ritaglia al canvas",
+		"smartMotion": "Movimento intelligente",
+		"smartMotionDescription": "Mantiene le soste e le interazioni importanti e sostituisce le deviazioni accidentali con un percorso diretto e fluido.",
+		"clipToBoundsDescription": "Mantiene il cursore all'interno del riquadro video. Disattiva per lasciare che il cursore superi i bordi - utile con zoom o panoramiche."
 	},
 	"language": {
 		"title": "Lingua"

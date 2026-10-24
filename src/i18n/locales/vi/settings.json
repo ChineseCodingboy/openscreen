@@ -8,7 +8,8 @@
 			"title": "Chế độ lấy nét",
 			"manual": "Thủ công",
 			"auto": "Tự động",
-			"autoDescription": "Máy ảnh đi theo vị trí con trỏ đã ghi"
+			"autoDescription": "Máy ảnh đi theo vị trí con trỏ đã ghi",
+			"lockedDisclaimer": "Được điều khiển bởi công tắc Tự động lấy nét chung trên dòng thời gian. Tắt nó để đặt chế độ lấy nét cho từng vùng thu phóng."
 		},
 		"customScale": "Thu phóng tùy chỉnh",
 		"position": {
@@ -68,7 +69,10 @@
 		"uploadCustom": "Tải lên tùy chỉnh",
 		"gradientLabel": "Dải màu {{index}}",
 		"colorPalette": "Bảng màu",
-		"colorWheel": "Vòng màu"
+		"colorWheel": "Vòng màu",
+		"withBackground": "Có nền",
+		"noBackground": "Không nền",
+		"noBackgroundDescription": "Chỉ hiển thị bản ghi tràn viền. Bản xuất sẽ giống với phần xem trước."
 	},
 	"crop": {
 		"title": "Cắt xén",
@@ -92,7 +96,8 @@
 		"title": "Độ phân giải xuất",
 		"low": "720p",
 		"medium": "1080p",
-		"high": "Source"
+		"high": "Original",
+		"source": "Source"
 	},
 	"gifSettings": {
 		"frameRate": "Tốc độ khung hình GIF",
@@ -108,11 +113,6 @@
 		"videoButton": "Xuất Video",
 		"gifButton": "Xuất GIF",
 		"chooseSaveLocation": "Chọn vị trí lưu"
-	},
-	"support": {
-		"reportBug": "Báo cáo lỗi",
-		"saveDiagnostics": "Lưu thông tin chẩn đoán",
-		"starOnGithub": "Đánh giá sao trên GitHub"
 	},
 	"imageUpload": {
 		"invalidFileType": "Loại tệp không hợp lệ",
@@ -132,8 +132,6 @@
 		"textPlaceholder": "Nhập văn bản của bạn...",
 		"fontStyle": "Kiểu phông chữ",
 		"selectStyle": "Chọn kiểu",
-		"textAnimation": "Hoạt ảnh văn bản",
-		"selectAnimation": "Chọn hoạt ảnh",
 		"size": "Kích thước",
 		"customFonts": "Phông chữ tùy chỉnh",
 		"textColor": "Màu văn bản",
@@ -207,7 +205,10 @@
 		"smoothing": "Làm mượt",
 		"motionBlur": "Làm mờ chuyển động",
 		"clickBounce": "Nảy khi nhấp",
-		"clipToBounds": "Cắt theo khung"
+		"clipToBounds": "Cắt theo khung",
+		"smartMotion": "Chuyển động thông minh",
+		"smartMotionDescription": "Giữ lại các điểm dừng và tương tác quan trọng, thay đường đi lệch ngoài ý muốn bằng chuyển động thẳng mượt mà.",
+		"clipToBoundsDescription": "Giữ con trỏ trong khung hình video. Tắt để con trỏ có thể vượt ra ngoài mép - hữu ích khi phóng to hoặc di chuyển khung."
 	},
 	"language": {
 		"title": "Ngôn ngữ"
@@ -215,5 +216,16 @@
 	"timeline": {
 		"title": "Dòng thời gian",
 		"waveform": "Hiển thị dạng sóng âm thanh trên rãnh cắt"
+	},
+	"textAnimation": {
+		"title": "Hiệu ứng chữ",
+		"selectAnimation": "Chọn hiệu ứng",
+		"none": "Không",
+		"fade": "Mờ dần",
+		"rise": "Nổi lên",
+		"pop": "Bật ra",
+		"slideLeft": "Trượt sang trái",
+		"typewriter": "Đánh máy",
+		"pulse": "Nhấp nháy"
 	}
 }

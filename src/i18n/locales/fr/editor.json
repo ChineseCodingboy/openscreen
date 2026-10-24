@@ -47,7 +47,8 @@
 	"autoCaptions": {
 		"button": "Sous-titres automatiques",
 		"dialogTitle": "Sous-titres automatiques",
-		"dialogDescription": "Choisissez approximativement combien de mots chaque sous-titre affiche à la fois. Le timing est réparti entre les mots de cette phrase.",
+		"dialogDescription": "Les sous-titres sont automatiquement divisés en phrases naturelles et lisibles.",
+		"adaptiveHint": "Aucun nombre de mots à régler. Les pauses, la ponctuation, le débit et la largeur du texte sont équilibrés automatiquement.",
 		"minWords": "Nombre minimum de mots par sous-titre",
 		"maxWords": "Nombre maximum de mots par sous-titre",
 		"wordsCount": "{{count}} mots",
@@ -63,6 +64,42 @@
 		"failed": "Impossible de générer les sous-titres.",
 		"truncated": "Seules les {{minutes}} premières minutes ont été transcrites."
 	},
+	"voiceover": {
+		"dialogTitle": "Voix off IA",
+		"dialogDescription": "Lit la transcription avec une voix claire et standard et remplace la piste audio d'origine.",
+		"tabCaptions": "Sous-titres",
+		"tabVoiceover": "Voix off IA",
+		"voice": "Voix",
+		"style": "Style",
+		"styles": {
+			"sleek": "Élégant et premium",
+			"energetic": "Énergique",
+			"broadcast": "Voix d'antenne",
+			"conversational": "Conversationnel"
+		},
+		"polish": "Peaufiner la transcription (retirer les tics de langage)",
+		"replaceOriginal": "Remplacer l'audio d'origine (le couper)",
+		"hint": "Les sous-titres de la timeline servent de script : modifiez d'abord leur texte pour changer ce qui est dit. Sans sous-titres, la voix est transcrite automatiquement.",
+		"generate": "Générer la voix off",
+		"regenerate": "Régénérer la voix off",
+		"remove": "Supprimer la voix off",
+		"transcribing": "Transcription de la voix…",
+		"synthesizing": "Synthèse vocale {{done}}/{{total}}…",
+		"saving": "Enregistrement de la piste audio…",
+		"done": "Voix off ajoutée à la timeline.",
+		"compressedNote": "{{count}} répliques ont été légèrement accélérées pour tenir dans le temps.",
+		"removed": "Voix off supprimée, audio d'origine restauré.",
+		"failed": "Impossible de générer la voix off.",
+		"busy": "La génération de la voix off est déjà en cours.",
+		"quality": "Qualité",
+		"qualityHd": "Haute fidélité",
+		"qualityStandard": "Standard (moins cher)",
+		"targetLanguage": "Langue cible",
+		"sourceLanguage": "Langue d'origine (sans traduction)",
+		"syncCaptions": "Traduire aussi les sous-titres de la timeline",
+		"translating": "Traduction du script…",
+		"hdCostHint": "La haute fidélité utilise les modèles gpt-audio (≈0,1–0,2 $ par minute d'audio)."
+	},
 	"emptyState": {
 		"title": "Aucun projet ouvert",
 		"description": "Importez une vidéo pour commencer à éditer, ou chargez un projet OpenScreen existant.",
@@ -77,5 +114,26 @@
 			"couldNotOpenTitle": "Impossible d'ouvrir le fichier",
 			"couldNotOpenMessage": "Le fichier de projet n'a pas pu être ouvert. La vidéo qu'il référence a peut-être été déplacée ou supprimée."
 		}
+	},
+	"background": {
+		"withBackground": "Background",
+		"noBackground": "No background",
+		"noBackgroundDescription": "Show only the recorded page edge-to-edge. Export will match the preview."
+	},
+	"mediaLibrary": {
+		"title": "Media Library",
+		"subtitle": "Your recordings and saved projects",
+		"back": "Back to editor",
+		"refresh": "Refresh",
+		"openFromComputer": "Open from computer",
+		"loading": "Loading library…",
+		"loadError": "Could not load the media library.",
+		"retry": "Try again",
+		"emptyTitle": "No recordings yet",
+		"emptyDescription": "Start a recording or open a video from your computer.",
+		"newRecording": "New recording",
+		"project": "Project",
+		"recording": "Recording",
+		"edited": "Project saved"
 	}
 }

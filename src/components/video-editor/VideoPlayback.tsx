@@ -5,6 +5,7 @@ import {
 	Graphics,
 	Sprite,
 	Texture,
+	UPDATE_PRIORITY,
 	VideoSource,
 } from "pixi.js";
 import { MotionBlurFilter } from "pixi-filters/motion-blur";
@@ -26,7 +27,12 @@ import {
 	type WebcamLayoutPreset,
 	type WebcamSizePreset,
 } from "@/lib/compositeLayout";
-import { getSmoothedCursorPath } from "@/lib/cursor/cursorPathSmoothing";
+import {
+	createSmoothedCursorPath,
+	getSmoothedCursorPath,
+	type SerializedSmoothedCursorPath,
+	type SmoothedCursorPath,
+} from "@/lib/cursor/cursorPathSmoothing";
 import {
 	createNativeCursorMotionBlurState,
 	getNativeCursorClickBounceProgress,
@@ -39,8 +45,18 @@ import {
 	resolveInterpolatedNativeCursorFrame,
 	resolveNativeCursorRenderAsset,
 } from "@/lib/cursor/nativeCursor";
+import {
+	getSemanticCursorPath,
+	prepareSemanticCursorPath,
+	type SemanticCursorPath,
+} from "@/lib/cursor/semanticCursorPath";
 import { classifyWallpaper, DEFAULT_WALLPAPER, resolveImageWallpaperUrl } from "@/lib/wallpaper";
 import { getCssClipPath } from "@/lib/webcamMaskShapes";
+import {
+	resolveWebcamSyncPoint,
+	type WebcamSyncMetadata,
+	webcamSyncBoundaryAt,
+} from "@/lib/webcamSync";
 import type { CursorRecordingData } from "@/native/contracts";
 import {
 	type AspectRatio,
@@ -53,13 +69,16 @@ import {
 	DEFAULT_EDITOR_LAYOUT_SETTINGS,
 	DEFAULT_SOURCE_DIMENSIONS,
 } from "./editorDefaults";
+import { toFileUrl } from "./projectPersistence";
 import {
 	type AnnotationRegion,
+	type AudioTrackClip,
 	type BlurData,
 	type CursorTelemetryPoint,
 	computeRotation3DContainScale,
 	DEFAULT_ROTATION_3D,
 	getZoomScale,
+	isFileBackedAudioClip,
 	isRotation3DIdentity,
 	lerpRotation3D,
 	rotation3DPerspective,
@@ -79,6 +98,19 @@ import { clampFocusToScale } from "./videoPlayback/focusUtils";
 import { layoutVideoContent as layoutVideoContentUtil } from "./videoPlayback/layoutUtils";
 import { clamp01 } from "./videoPlayback/mathUtils";
 import { updateOverlayIndicator } from "./videoPlayback/overlayUtils";
+import {
+	createPreviewResolutionControllerState,
+	samplePreviewResolutionPerformance,
+	setPreviewResolutionPlaybackActive,
+} from "./videoPlayback/previewResolution";
+import {
+	areExplicitPreviewAudioTracksReady,
+	areMediaSpansContinuous,
+	createFollowerBoundaryKey,
+	resolvePreviewDrift,
+	shouldMuteEmbeddedPreviewAudio,
+	shouldPrepareLegacySupplementalAudio,
+} from "./videoPlayback/previewTransport";
 import { createVideoEventHandlers } from "./videoPlayback/videoEventHandlers";
 import { findDominantRegion } from "./videoPlayback/zoomRegionUtils";
 import { createZoomSpringState, resetZoomSpring, stepZoomSpring } from "./videoPlayback/zoomSpring";
@@ -88,11 +120,13 @@ import {
 	computeZoomTransform,
 	createMotionBlurState,
 	type MotionBlurState,
+	mapSourceFocusToStage,
 } from "./videoPlayback/zoomTransform";
 
 interface VideoPlaybackProps {
 	videoPath: string;
 	webcamVideoPath?: string;
+	webcamSync?: WebcamSyncMetadata;
 	webcamLayoutPreset: WebcamLayoutPreset;
 	webcamMaskShape?: import("./types").WebcamMaskShape;
 	webcamMirrored?: boolean;
@@ -107,6 +141,7 @@ interface VideoPlaybackProps {
 	onPlayStateChange: (playing: boolean) => void;
 	onError: (error: string) => void;
 	wallpaper?: string;
+	backgroundMode?: "wallpaper" | "none";
 	zoomRegions: ZoomRegion[];
 	selectedZoomId: string | null;
 	onSelectZoom: (id: string | null) => void;
@@ -141,6 +176,7 @@ interface VideoPlaybackProps {
 	showCursor?: boolean;
 	cursorSize?: number;
 	cursorSmoothing?: number;
+	smartCursorEnabled?: boolean;
 	cursorMotionBlur?: number;
 	cursorClickBounce?: number;
 	cursorClipToBounds?: boolean;
@@ -148,6 +184,10 @@ interface VideoPlaybackProps {
 	// Render the selected zoom at the playhead even while paused, so the editor can
 	// preview the effect without leaving the focus-edit view.
 	isPreviewingZoom?: boolean;
+	showSourceVideo?: boolean;
+	audioTrackClips?: AudioTrackClip[];
+	/** The parent media-track timeline supplies the high-frequency transport clock. */
+	externalTransportActive?: boolean;
 }
 
 export interface VideoPlaybackRef {
@@ -158,6 +198,8 @@ export interface VideoPlaybackRef {
 	containerRef: React.RefObject<HTMLDivElement>;
 	play: () => Promise<void>;
 	pause: () => void;
+	seekTimeline: (timeSeconds: number) => void;
+	updateTransportClock: (timelineMs: number, sourceMs: number, sourceActive?: boolean) => void;
 }
 
 function getResolvedVideoDuration(video: HTMLVideoElement): number | null {
@@ -204,6 +246,11 @@ type VideoElementWithAudioTracks = HTMLVideoElement & {
 	audioTracks?: AudioTrackListLike;
 };
 
+interface PreparedPreviewAudioTrack {
+	trackOrdinal: number;
+	path: string;
+}
+
 function enableAllPreviewAudioTracks(video: HTMLVideoElement) {
 	const audioTracks = (video as VideoElementWithAudioTracks).audioTracks;
 	if (!audioTracks || audioTracks.length <= 1) {
@@ -220,6 +267,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 		{
 			videoPath,
 			webcamVideoPath,
+			webcamSync,
 			webcamLayoutPreset,
 			webcamMaskShape,
 			webcamMirrored = false,
@@ -234,6 +282,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 			onPlayStateChange,
 			onError,
 			wallpaper,
+			backgroundMode = "wallpaper",
 			zoomRegions,
 			selectedZoomId,
 			onSelectZoom,
@@ -268,17 +317,36 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 			showCursor = false,
 			cursorSize = DEFAULT_CURSOR_SETTINGS.size,
 			cursorSmoothing = DEFAULT_CURSOR_SETTINGS.smoothing,
+			smartCursorEnabled = true,
 			cursorMotionBlur = DEFAULT_CURSOR_SETTINGS.motionBlur,
 			cursorClickBounce = DEFAULT_CURSOR_SETTINGS.clickBounce,
 			cursorClipToBounds = DEFAULT_CURSOR_SETTINGS.clipToBounds,
 			cursorTheme = DEFAULT_CURSOR_SETTINGS.theme,
 			isPreviewingZoom = false,
+			showSourceVideo = true,
+			audioTrackClips = [],
+			externalTransportActive = false,
 		},
 		ref,
 	) => {
 		const videoRef = useRef<HTMLVideoElement | null>(null);
 		const supplementalAudioRef = useRef<HTMLAudioElement | null>(null);
+		const audioTrackElementsRef = useRef<Map<number, HTMLAudioElement>>(new Map());
+		const readyAudioTrackOrdinalsRef = useRef<Set<number>>(new Set());
+		const audioTrackClipsRef = useRef(audioTrackClips);
+		const audioTransportRef = useRef({
+			wasPlaying: false,
+			activeClips: new Map<number, AudioTrackClip>(),
+			rateMultipliers: new Map<number, number>(),
+			supplementalRateMultiplier: 1,
+			webcamRateMultiplier: 1,
+			webcamBoundaryKey: null as string | null,
+		});
+		const audioContextRef = useRef<AudioContext | null>(null);
+		const audioSourceNodesRef = useRef<Map<number, MediaElementAudioSourceNode>>(new Map());
+		const audioGainNodesRef = useRef<Map<number, GainNode>>(new Map());
 		const webcamVideoRef = useRef<HTMLVideoElement | null>(null);
+		const webcamSyncRef = useRef<WebcamSyncMetadata | undefined>(webcamSync);
 		const webcamWrapperRef = useRef<HTMLDivElement | null>(null);
 		const webcamReactiveZoomRef = useRef(webcamReactiveZoom);
 		const webcamLayoutPresetRef = useRef(webcamLayoutPreset);
@@ -292,16 +360,45 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 		const [pixiReady, setPixiReady] = useState(false);
 		const [videoReady, setVideoReady] = useState(false);
 		const [supplementalAudioPath, setSupplementalAudioPath] = useState<string | null>(null);
+		const [preparedAudioTracks, setPreparedAudioTracks] = useState<PreparedPreviewAudioTrack[]>([]);
 		const [overlaySize, setOverlaySize] = useState({ width: 800, height: 600 });
 		const [overlayElement, setOverlayElement] = useState<HTMLDivElement | null>(null);
 		const overlayRef = useRef<HTMLDivElement | null>(null);
+		const blurPreviewSnapshotRef = useRef<{
+			width: number;
+			height: number;
+			clientWidth?: number;
+			clientHeight?: number;
+		} | null>(null);
+		const lastBlurSnapshotAtRef = useRef(Number.NEGATIVE_INFINITY);
+		const lastBlurSnapshotTimeMsRef = useRef(Number.NEGATIVE_INFINITY);
 
 		const focusIndicatorRef = useRef<HTMLDivElement | null>(null);
 		const composite3DRef = useRef<HTMLDivElement | null>(null);
 		const outerWrapperRef = useRef<HTMLDivElement | null>(null);
 		const [webcamLayout, setWebcamLayout] = useState<StyledRenderRect | null>(null);
 		const [webcamDimensions, setWebcamDimensions] = useState<Size | null>(null);
-		const currentTimeRef = useRef(0);
+		const currentTimeRef = useRef(currentTime * 1000);
+		const timelineCurrentTimeRef = useRef(currentTime * 1000);
+		const externalTransportActiveRef = useRef(externalTransportActive);
+		const lastTransportClockRef = useRef({
+			timelineMs: currentTime * 1000,
+			sourceMs: currentTime * 1000,
+			sourceActive: true,
+		});
+		const lastFollowerSyncAtMsRef = useRef(Number.NEGATIVE_INFINITY);
+		const lastFollowerBoundaryKeyRef = useRef<string | null>(null);
+		const syncFollowerMediaRef = useRef<(forceSeek?: boolean) => void>(() => {
+			// Assigned once the follower transport is initialized.
+		});
+		const renderPreviewFrameRef = useRef<() => void>(() => {
+			// Assigned once the Pixi scene is initialized.
+		});
+		const previewResolutionControllerRef = useRef(
+			createPreviewResolutionControllerState({
+				devicePixelRatio: typeof window === "undefined" ? 1 : window.devicePixelRatio || 1,
+			}),
+		);
 		const zoomRegionsRef = useRef<ZoomRegion[]>([]);
 		const cursorTelemetryRef = useRef<CursorTelemetryPoint[]>([]);
 		const cursorClickTimestampsRef = useRef<number[]>([]);
@@ -364,6 +461,11 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 		const isResolvingDurationRef = useRef(false);
 		const hasNativeCursorRecordingRef = useRef(false);
 		const cursorRecordingDataRef = useRef(cursorRecordingData);
+		const smoothedNativeCursorPathRef = useRef<SmoothedCursorPath | null>(null);
+		const semanticNativeCursorPathRef = useRef<SemanticCursorPath | null>(null);
+		/** Recording the installed cursor paths were built from; unchanged data keeps the old path rendering until its replacement is ready. */
+		const cursorPathRecordingRef = useRef<CursorRecordingData | null>(null);
+		const smartCursorEnabledRef = useRef(smartCursorEnabled);
 		const cropRegionRef = useRef(cropRegion);
 		const nativeCursorSpriteRef = useRef<Sprite | null>(null);
 		const nativeCursorTextureIdRef = useRef<string | null>(null);
@@ -377,6 +479,10 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 			() => hasNativeCursorRecordingData(cursorRecordingData),
 			[cursorRecordingData],
 		);
+		const sampleSemanticCameraFocus = useCallback((timeMs: number): ZoomFocus | null => {
+			const sample = semanticNativeCursorPathRef.current?.cameraSampleAt(timeMs);
+			return sample ? { cx: sample.cx, cy: sample.cy } : null;
+		}, []);
 
 		const syncResolvedDuration = useCallback(
 			(video: HTMLVideoElement) => {
@@ -449,6 +555,9 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 						// no-op
 					}
 					currentTimeRef.current = 0;
+					timelineCurrentTimeRef.current = 0;
+					lastTransportClockRef.current = { timelineMs: 0, sourceMs: 0, sourceActive: true };
+					lastFollowerBoundaryKeyRef.current = null;
 					finalize();
 				};
 
@@ -611,6 +720,289 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 			return zoomRegions.find((region) => region.id === selectedZoomId) ?? null;
 		}, [zoomRegions, selectedZoomId]);
 
+		useEffect(() => {
+			audioTrackClipsRef.current = audioTrackClips;
+		}, [audioTrackClips]);
+
+		useEffect(() => {
+			if (!externalTransportActiveRef.current || !isPlayingRef.current) {
+				const timeMs = currentTime * 1000;
+				timelineCurrentTimeRef.current = timeMs;
+				if (!externalTransportActiveRef.current) currentTimeRef.current = timeMs;
+			}
+		}, [currentTime]);
+
+		useEffect(() => {
+			externalTransportActiveRef.current = externalTransportActive;
+		}, [externalTransportActive]);
+
+		const ensurePreviewAudioGraph = useCallback(() => {
+			if (typeof AudioContext === "undefined") return;
+			const context = audioContextRef.current ?? new AudioContext();
+			audioContextRef.current = context;
+			for (const [trackOrdinal, element] of audioTrackElementsRef.current) {
+				if (audioSourceNodesRef.current.has(trackOrdinal)) continue;
+				const sourceNode = context.createMediaElementSource(element);
+				const gainNode = context.createGain();
+				sourceNode.connect(gainNode).connect(context.destination);
+				audioSourceNodesRef.current.set(trackOrdinal, sourceNode);
+				audioGainNodesRef.current.set(trackOrdinal, gainNode);
+			}
+			if (context.state === "suspended") void context.resume();
+		}, []);
+
+		const setPreviewAudioTrackElement = useCallback(
+			(trackOrdinal: number, element: HTMLAudioElement | null) => {
+				if (element) {
+					audioTrackElementsRef.current.set(trackOrdinal, element);
+					return;
+				}
+				audioTrackElementsRef.current.delete(trackOrdinal);
+				readyAudioTrackOrdinalsRef.current.delete(trackOrdinal);
+				audioSourceNodesRef.current.get(trackOrdinal)?.disconnect();
+				audioGainNodesRef.current.get(trackOrdinal)?.disconnect();
+				audioSourceNodesRef.current.delete(trackOrdinal);
+				audioGainNodesRef.current.delete(trackOrdinal);
+				audioTransportRef.current.activeClips.delete(trackOrdinal);
+				audioTransportRef.current.rateMultipliers.delete(trackOrdinal);
+				syncFollowerMediaRef.current(true);
+			},
+			[],
+		);
+		const markPreviewAudioTrackReady = useCallback((trackOrdinal: number) => {
+			if (readyAudioTrackOrdinalsRef.current.has(trackOrdinal)) return;
+			readyAudioTrackOrdinalsRef.current.add(trackOrdinal);
+			syncFollowerMediaRef.current(true);
+		}, []);
+		const markPreviewAudioTrackFailed = useCallback((trackOrdinal: number) => {
+			readyAudioTrackOrdinalsRef.current.delete(trackOrdinal);
+			syncFollowerMediaRef.current(true);
+		}, []);
+		const audioTrackRefCallbacksRef = useRef<
+			Map<number, (element: HTMLAudioElement | null) => void>
+		>(new Map());
+		const getPreviewAudioTrackRef = useCallback(
+			(trackOrdinal: number) => {
+				let callback = audioTrackRefCallbacksRef.current.get(trackOrdinal);
+				if (!callback) {
+					callback = (element) => setPreviewAudioTrackElement(trackOrdinal, element);
+					audioTrackRefCallbacksRef.current.set(trackOrdinal, callback);
+				}
+				return callback;
+			},
+			[setPreviewAudioTrackElement],
+		);
+
+		useEffect(
+			() => () => {
+				for (const sourceNode of audioSourceNodesRef.current.values()) sourceNode.disconnect();
+				for (const gainNode of audioGainNodesRef.current.values()) gainNode.disconnect();
+				audioSourceNodesRef.current.clear();
+				audioGainNodesRef.current.clear();
+				audioTrackElementsRef.current.clear();
+				readyAudioTrackOrdinalsRef.current.clear();
+				audioTrackRefCallbacksRef.current.clear();
+				const context = audioContextRef.current;
+				audioContextRef.current = null;
+				if (context && context.state !== "closed") void context.close();
+			},
+			[],
+		);
+
+		const syncFollowerMedia = useCallback(
+			(forceSeek = false) => {
+				const timelineMs = timelineCurrentTimeRef.current;
+				const sourceMs = currentTimeRef.current;
+				const sourceActive = lastTransportClockRef.current.sourceActive;
+				const speed =
+					speedRegionsRef.current.find(
+						(region) => timelineMs >= region.startMs && timelineMs < region.endMs,
+					)?.speed ?? 1;
+				const playing = isPlayingRef.current;
+				const transport = audioTransportRef.current;
+				const clips = audioTrackClipsRef.current;
+				const video = videoRef.current;
+				const trackOrdinals = [...new Set(clips.map((clip) => clip.trackOrdinal))];
+				const useExtractedTracks = areExplicitPreviewAudioTracksReady(
+					trackOrdinals,
+					readyAudioTrackOrdinalsRef.current,
+				);
+
+				if (video) {
+					// Keep the embedded track audible until every editable physical track has
+					// been prepared, except when the edit explicitly contains no audible clip.
+					video.muted = shouldMuteEmbeddedPreviewAudio(clips, useExtractedTracks);
+				}
+				if (playing && useExtractedTracks) ensurePreviewAudioGraph();
+
+				const syncMediaElement = (
+					element: HTMLMediaElement | null,
+					targetSeconds: number,
+					rateKey: "supplementalRateMultiplier" | "webcamRateMultiplier",
+					forceFollowerSeek = false,
+					mediaRateMultiplier = 1,
+				) => {
+					if (!element) return;
+					let correction = resolvePreviewDrift(element.currentTime - targetSeconds);
+					if (
+						forceSeek ||
+						forceFollowerSeek ||
+						(playing && !transport.wasPlaying) ||
+						correction.type === "seek"
+					) {
+						if (Math.abs(element.currentTime - targetSeconds) > 0.005) {
+							element.currentTime = Math.max(0, targetSeconds);
+						}
+						correction = { type: "none", rateMultiplier: 1 };
+					}
+					transport[rateKey] = correction.rateMultiplier;
+					const desiredRate = speed * mediaRateMultiplier * transport[rateKey];
+					if (element.playbackRate !== desiredRate) element.playbackRate = desiredRate;
+					if (playing) {
+						if (element.paused) void element.play().catch(() => undefined);
+					} else {
+						element.pause();
+					}
+				};
+
+				const supplementalAudio = supplementalAudioRef.current;
+				if (clips.length === 0 && sourceActive) {
+					syncMediaElement(supplementalAudio, sourceMs / 1000, "supplementalRateMultiplier");
+				} else {
+					supplementalAudio?.pause();
+				}
+
+				const syncTrack = (trackOrdinal: number, element: HTMLAudioElement | null) => {
+					if (!element) return;
+					const clip = clips.find(
+						(candidate) =>
+							candidate.trackOrdinal === trackOrdinal &&
+							!candidate.muted &&
+							candidate.gain > 0 &&
+							timelineMs >= candidate.startMs &&
+							timelineMs < candidate.endMs,
+					);
+					if (!clip) {
+						element.pause();
+						transport.activeClips.delete(trackOrdinal);
+						return;
+					}
+
+					const targetSeconds = (clip.sourceStartMs + timelineMs - clip.startMs) / 1000;
+					const previousClip = transport.activeClips.get(trackOrdinal);
+					const enteredDiscontinuousClip =
+						previousClip?.id !== clip.id && !areMediaSpansContinuous(previousClip, clip);
+					let correction = resolvePreviewDrift(element.currentTime - targetSeconds);
+					if (
+						forceSeek ||
+						(playing && !transport.wasPlaying) ||
+						enteredDiscontinuousClip ||
+						correction.type === "seek"
+					) {
+						if (Math.abs(element.currentTime - targetSeconds) > 0.005) {
+							element.currentTime = Math.max(0, targetSeconds);
+						}
+						correction = { type: "none", rateMultiplier: 1 };
+					}
+					transport.activeClips.set(trackOrdinal, clip);
+					transport.rateMultipliers.set(trackOrdinal, correction.rateMultiplier);
+
+					const gain = Math.min(4, Math.max(0, clip.gain));
+					const gainNode = audioGainNodesRef.current.get(trackOrdinal);
+					if (gainNode) {
+						if (gainNode.gain.value !== gain) gainNode.gain.value = gain;
+						if (element.volume !== 1) element.volume = 1;
+					} else if (element.volume !== Math.min(1, gain)) {
+						element.volume = Math.min(1, gain);
+					}
+					const desiredRate = speed * (transport.rateMultipliers.get(trackOrdinal) ?? 1);
+					if (element.playbackRate !== desiredRate) element.playbackRate = desiredRate;
+					if (playing) {
+						if (element.paused) void element.play().catch(() => undefined);
+					} else {
+						element.pause();
+					}
+				};
+
+				for (const [trackOrdinal, element] of audioTrackElementsRef.current) {
+					if (useExtractedTracks) syncTrack(trackOrdinal, element);
+					else element.pause();
+				}
+				const webcamPoint = sourceActive
+					? resolveWebcamSyncPoint(sourceMs, webcamSyncRef.current)
+					: null;
+				if (webcamPoint) {
+					const webcamBoundaryChanged = transport.webcamBoundaryKey !== webcamPoint.boundaryKey;
+					transport.webcamBoundaryKey = webcamPoint.boundaryKey;
+					syncMediaElement(
+						webcamVideoRef.current,
+						webcamPoint.webcamTimeMs / 1000,
+						"webcamRateMultiplier",
+						webcamBoundaryChanged,
+						webcamPoint.localRate,
+					);
+				} else {
+					transport.webcamBoundaryKey = "gap";
+					webcamVideoRef.current?.pause();
+				}
+				transport.wasPlaying = playing;
+			},
+			[ensurePreviewAudioGraph],
+		);
+		syncFollowerMediaRef.current = syncFollowerMedia;
+
+		const updateTransportClock = useCallback(
+			(timelineMs: number, sourceMs: number, sourceActive = true) => {
+				if (!Number.isFinite(timelineMs) || !Number.isFinite(sourceMs)) return;
+				const nextClock = {
+					timelineMs: Math.max(0, timelineMs),
+					sourceMs: Math.max(0, sourceMs),
+					sourceActive,
+				};
+				const previousClock = lastTransportClockRef.current;
+				const timelineDelta = nextClock.timelineMs - previousClock.timelineMs;
+				const sourceDelta = nextClock.sourceMs - previousClock.sourceMs;
+				const discontinuity =
+					Math.abs(timelineDelta) > 100 ||
+					Math.abs(sourceDelta) > 100 ||
+					Math.abs(timelineDelta - sourceDelta) > 100;
+				const sourceActivityChanged = previousClock.sourceActive !== nextClock.sourceActive;
+				lastTransportClockRef.current = nextClock;
+				timelineCurrentTimeRef.current = nextClock.timelineMs;
+				currentTimeRef.current = nextClock.sourceMs;
+
+				const boundaryKey = `${createFollowerBoundaryKey(
+					nextClock.timelineMs,
+					nextClock.sourceActive,
+					audioTrackClipsRef.current,
+					speedRegionsRef.current,
+				)}|webcam:${
+					nextClock.sourceActive
+						? webcamSyncBoundaryAt(nextClock.sourceMs, webcamSyncRef.current)
+						: "inactive"
+				}`;
+				const boundaryChanged = boundaryKey !== lastFollowerBoundaryKeyRef.current;
+				lastFollowerBoundaryKeyRef.current = boundaryKey;
+
+				const nowMs = performance.now();
+				if (discontinuity || boundaryChanged || nowMs - lastFollowerSyncAtMsRef.current >= 500) {
+					lastFollowerSyncAtMsRef.current = nowMs;
+					syncFollowerMediaRef.current(
+						discontinuity || (sourceActivityChanged && nextClock.sourceActive),
+					);
+				}
+				if (!isPlayingRef.current && !isScrubbingRef.current) {
+					renderPreviewFrameRef.current();
+				}
+			},
+			[],
+		);
+
+		const seekAudioToTimeline = useCallback((timeSeconds: number) => {
+			timelineCurrentTimeRef.current = Math.max(0, timeSeconds * 1000);
+			syncFollowerMediaRef.current(true);
+		}, []);
+
 		useImperativeHandle(ref, () => ({
 			video: videoRef.current,
 			app: appRef.current,
@@ -621,20 +1013,14 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 				const vid = videoRef.current;
 				if (!vid) return;
 				try {
+					ensurePreviewAudioGraph();
 					allowPlaybackRef.current = true;
 					enableAllPreviewAudioTracks(vid);
 					await vid.play().catch((err) => {
 						console.log("PLAY ERROR:", err);
 						throw err;
 					});
-					const supplementalAudio = supplementalAudioRef.current;
-					if (supplementalAudio) {
-						supplementalAudio.currentTime = vid.currentTime;
-						supplementalAudio.playbackRate = vid.playbackRate;
-						await supplementalAudio.play().catch(() => {
-							// The main video remains the source of truth for playback state.
-						});
-					}
+					syncFollowerMediaRef.current(true);
 				} catch (error) {
 					allowPlaybackRef.current = false;
 					throw error;
@@ -648,7 +1034,11 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 				}
 				video.pause();
 				supplementalAudioRef.current?.pause();
+				webcamVideoRef.current?.pause();
+				for (const element of audioTrackElementsRef.current.values()) element.pause();
 			},
+			seekTimeline: seekAudioToTimeline,
+			updateTransportClock,
 		}));
 
 		const updateFocusFromClientPoint = (clientX: number, clientY: number) => {
@@ -832,6 +1222,182 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 		}, [cursorSmoothing]);
 
 		useEffect(() => {
+			smartCursorEnabledRef.current = smartCursorEnabled;
+		}, [smartCursorEnabled]);
+
+		useEffect(() => {
+			let cancelled = false;
+			let idleId: number | null = null;
+			let timeoutId: number | null = null;
+			let worker: Worker | null = null;
+			const semanticFallbackSmoothing = Number.parseFloat(
+				(Number.isFinite(cursorSmoothing) ? Math.min(1, Math.max(0, cursorSmoothing)) : 0).toFixed(
+					2,
+				),
+			);
+			// Only a different recording invalidates the installed paths. Smoothing/smart-mode
+			// changes keep the old path rendering until its replacement is ready, so the preview
+			// never falls back to raw samples mid-swap.
+			if (cursorPathRecordingRef.current !== cursorRecordingData) {
+				cursorPathRecordingRef.current = cursorRecordingData ?? null;
+				smoothedNativeCursorPathRef.current = null;
+				semanticNativeCursorPathRef.current = null;
+			}
+			if (!cursorRecordingData?.samples.length) return;
+
+			const installPath = (path: SmoothedCursorPath | null) => {
+				if (cancelled) return;
+				smoothedNativeCursorPathRef.current = path;
+				renderPreviewFrameRef.current();
+			};
+			const buildOnMainThread = () => {
+				if (cancelled) return;
+				semanticNativeCursorPathRef.current = null;
+				installPath(getSmoothedCursorPath(cursorRecordingData, cursorSmoothing));
+			};
+			const scheduleOnMainThread = (callback: () => void) => {
+				if (cancelled || idleId !== null || timeoutId !== null) return;
+				if (typeof window.requestIdleCallback === "function") {
+					idleId = window.requestIdleCallback(
+						() => {
+							idleId = null;
+							if (!cancelled) callback();
+						},
+						{ timeout: 500 },
+					);
+				} else {
+					timeoutId = window.setTimeout(() => {
+						timeoutId = null;
+						if (!cancelled) callback();
+					}, 0);
+				}
+			};
+			const scheduleFallback = () => scheduleOnMainThread(buildOnMainThread);
+			const terminateWorker = () => {
+				worker?.terminate();
+				worker = null;
+			};
+
+			if (smartCursorEnabled) {
+				const installSemanticPath = (
+					fallbackPath?: SmoothedCursorPath,
+					fallbackSmoothing = cursorSmoothing,
+				) => {
+					if (cancelled) return;
+					const semanticPath = getSemanticCursorPath(
+						cursorRecordingData,
+						fallbackSmoothing,
+						fallbackPath,
+					);
+					semanticNativeCursorPathRef.current = semanticPath;
+					installPath(semanticPath);
+				};
+				// Semantic analysis is O(samples) and cached — build synchronously so the render
+				// loop never sees a missing path (raw-sample fallback) while smart mode is on.
+				const prepared = prepareSemanticCursorPath(cursorRecordingData);
+				if (
+					!prepared.requiresFallbackPath ||
+					semanticFallbackSmoothing <= 0 ||
+					typeof Worker === "undefined"
+				) {
+					installSemanticPath();
+					return () => {
+						cancelled = true;
+					};
+				}
+
+				// The spring fallback for anchor-poor runs is duration-proportional, so it stays on
+				// the worker. Until it lands, an interim path with unsmoothed fallback runs (a cheap
+				// array copy) keeps the semantic runs — identical in both paths — rendering.
+				installSemanticPath(undefined, 0);
+				try {
+					worker = new Worker(
+						new URL("../../lib/cursor/cursorPathSmoothing.worker.ts", import.meta.url),
+						{ type: "module" },
+					);
+				} catch {
+					scheduleOnMainThread(() => installSemanticPath());
+					return () => {
+						cancelled = true;
+						if (idleId !== null) window.cancelIdleCallback(idleId);
+						if (timeoutId !== null) window.clearTimeout(timeoutId);
+					};
+				}
+				worker.onmessage = (
+					event: MessageEvent<{ path?: SerializedSmoothedCursorPath; error?: string }>,
+				) => {
+					if (event.data.path) {
+						installSemanticPath(createSmoothedCursorPath(event.data.path));
+						terminateWorker();
+						return;
+					}
+					terminateWorker();
+					scheduleOnMainThread(() => installSemanticPath());
+				};
+				worker.onerror = () => {
+					terminateWorker();
+					scheduleOnMainThread(() => installSemanticPath());
+				};
+				try {
+					worker.postMessage({
+						samples: prepared.fallbackSamples,
+						smoothing: semanticFallbackSmoothing,
+					});
+				} catch {
+					terminateWorker();
+					scheduleOnMainThread(() => installSemanticPath());
+				}
+				return () => {
+					cancelled = true;
+					terminateWorker();
+					if (idleId !== null) window.cancelIdleCallback(idleId);
+					if (timeoutId !== null) window.clearTimeout(timeoutId);
+				};
+			}
+
+			// The raw path is only O(samples). The expensive 240Hz spring resampling
+			// stays off the renderer thread so long recordings cannot stall preview.
+			if (cursorSmoothing <= 0 || typeof Worker === "undefined") {
+				scheduleFallback();
+				return () => {
+					cancelled = true;
+					if (idleId !== null) window.cancelIdleCallback(idleId);
+					if (timeoutId !== null) window.clearTimeout(timeoutId);
+				};
+			}
+
+			worker = new Worker(
+				new URL("../../lib/cursor/cursorPathSmoothing.worker.ts", import.meta.url),
+				{ type: "module" },
+			);
+			worker.onmessage = (
+				event: MessageEvent<{ path?: SerializedSmoothedCursorPath; error?: string }>,
+			) => {
+				if (event.data.path) {
+					if (!cancelled) semanticNativeCursorPathRef.current = null;
+					installPath(createSmoothedCursorPath(event.data.path));
+				} else {
+					scheduleFallback();
+				}
+				terminateWorker();
+			};
+			worker.onerror = () => {
+				terminateWorker();
+				scheduleFallback();
+			};
+			worker.postMessage({
+				samples: cursorRecordingData.samples,
+				smoothing: cursorSmoothing,
+			});
+			return () => {
+				cancelled = true;
+				terminateWorker();
+				if (idleId !== null) window.cancelIdleCallback(idleId);
+				if (timeoutId !== null) window.clearTimeout(timeoutId);
+			};
+		}, [cursorRecordingData, cursorSmoothing, smartCursorEnabled]);
+
+		useEffect(() => {
 			cursorMotionBlurRef.current = cursorMotionBlur;
 		}, [cursorMotionBlur]);
 
@@ -846,6 +1412,13 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 		useEffect(() => {
 			cursorThemeRef.current = cursorTheme;
 		}, [cursorTheme]);
+
+		useEffect(() => {
+			webcamSyncRef.current = webcamSync;
+			audioTransportRef.current.webcamBoundaryKey = null;
+			lastFollowerBoundaryKeyRef.current = null;
+			syncFollowerMediaRef.current(true);
+		}, [webcamSync]);
 
 		useEffect(() => {
 			webcamReactiveZoomRef.current = webcamReactiveZoom;
@@ -865,6 +1438,12 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 			isPreviewingZoomRef.current = isPreviewingZoom;
 		}, [isPreviewingZoom]);
 
+		useEffect(() => {
+			if (videoContainerRef.current) {
+				videoContainerRef.current.visible = showSourceVideo;
+			}
+		}, [showSourceVideo, pixiReady, videoReady]);
+
 		// Sync cursor overlay config when settings change
 		useEffect(() => {
 			const overlay = cursorOverlayRef.current;
@@ -875,6 +1454,35 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 			overlay.setClickBounce(cursorClickBounce);
 			overlay.reset();
 		}, [cursorSize, cursorSmoothing, cursorMotionBlur, cursorClickBounce]);
+
+		useEffect(() => {
+			if (pixiReady && videoReady) layoutVideoContent();
+		}, [layoutVideoContent, pixiReady, videoReady]);
+
+		useEffect(() => {
+			if (!isPlayingRef.current && !isScrubbingRef.current) {
+				renderPreviewFrameRef.current();
+			}
+		}, [
+			cropRegion,
+			cursorClickBounce,
+			cursorClipToBounds,
+			cursorMotionBlur,
+			cursorRecordingData,
+			cursorSize,
+			cursorSmoothing,
+			cursorTelemetry,
+			cursorTheme,
+			isPreviewingZoom,
+			motionBlurAmount,
+			selectedZoomId,
+			showCursor,
+			showSourceVideo,
+			webcamLayoutPreset,
+			webcamPosition,
+			webcamReactiveZoom,
+			zoomRegions,
+		]);
 
 		useEffect(() => {
 			onTimeUpdateRef.current = onTimeUpdate;
@@ -924,22 +1532,37 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 			};
 		}, [pixiReady, videoReady, layoutVideoContent]);
 
-		// Drop canvas resolution to 1.0 while scrubbing and restore native DPR on play/idle.
-		// Only on scrub-state transitions; mutating renderer.resolution per-frame thrashes
-		// texture uploads.
-		useEffect(() => {
-			if (!pixiReady) return;
+		const applyPreviewResolution = useCallback((targetResolution: number) => {
 			const app = appRef.current;
 			const container = containerRef.current;
 			if (!app || !container) return;
+			if (Math.abs(app.renderer.resolution - targetResolution) < 0.001) return;
 
-			const targetResolution = isScrubbing ? 1 : window.devicePixelRatio || 1;
-			if (app.renderer.resolution === targetResolution) return;
+			const cssWidth = container.clientWidth;
+			const cssHeight = container.clientHeight;
+			if (!cssWidth || !cssHeight) return;
 
 			app.renderer.resolution = targetResolution;
-			app.renderer.resize(container.clientWidth, container.clientHeight);
-			layoutVideoContentRef.current?.();
-		}, [isScrubbing, pixiReady]);
+			if (blurFilterRef.current) blurFilterRef.current.resolution = targetResolution;
+			app.renderer.resize(cssWidth, cssHeight);
+			// renderer.resize updates the backing store; keep layout dimensions CSS-driven.
+			app.canvas.style.width = "100%";
+			app.canvas.style.height = "100%";
+			app.render();
+		}, []);
+
+		// Start playback at a balanced 1.5x backing resolution and adapt from measured
+		// render/drop performance. Paused frames always return to the full device DPR.
+		useEffect(() => {
+			if (!pixiReady) return;
+			const nextState = setPreviewResolutionPlaybackActive(previewResolutionControllerRef.current, {
+				active: isPlaying || isScrubbing,
+				devicePixelRatio: window.devicePixelRatio || 1,
+				nowMs: performance.now(),
+			});
+			previewResolutionControllerRef.current = nextState;
+			applyPreviewResolution(nextState.resolution);
+		}, [applyPreviewResolution, isPlaying, isScrubbing, pixiReady]);
 
 		useEffect(() => {
 			if (!pixiReady || !videoReady) return;
@@ -1010,9 +1633,11 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 					antialias: true,
 					resolution: window.devicePixelRatio || 1,
 					autoDensity: true,
+					powerPreference: "high-performance",
 				});
 
 				app.ticker.maxFPS = 60;
+				app.stop();
 
 				if (!mounted) {
 					app.destroy(true, {
@@ -1074,12 +1699,26 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 			};
 		}, []);
 
+		const audioTrackOrdinals = useMemo(
+			() => [...new Set(audioTrackClips.map((clip) => clip.trackOrdinal))].sort((a, b) => a - b),
+			[audioTrackClips],
+		);
+		const hasExplicitAudioTracks = audioTrackOrdinals.length > 0;
+		// File-backed tracks (voice-over) resolve to their own file, so a regenerated
+		// file at a new path must re-run track preparation even when ordinals repeat.
+		const fileBackedAudioSourceKey = useMemo(
+			() =>
+				audioTrackClips
+					.filter((clip) => isFileBackedAudioClip(clip))
+					.map((clip) => `${clip.trackOrdinal}:${clip.sourcePath}`)
+					.sort()
+					.join("|"),
+			[audioTrackClips],
+		);
+
 		useEffect(() => {
-			if (!videoPath) {
-				lastResolvedDurationRef.current = null;
-				isResolvingDurationRef.current = false;
-				setVideoReady(false);
-				setSupplementalAudioPath(null);
+			setSupplementalAudioPath(null);
+			if (!videoPath || !shouldPrepareLegacySupplementalAudio(hasExplicitAudioTracks)) {
 				return;
 			}
 
@@ -1092,17 +1731,25 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 					}
 				})
 				.catch(() => {
-					if (!cancelled) {
-						setSupplementalAudioPath(null);
-					}
+					if (!cancelled) setSupplementalAudioPath(null);
 				});
+			return () => {
+				cancelled = true;
+			};
+		}, [hasExplicitAudioTracks, videoPath]);
+
+		useEffect(() => {
+			if (!videoPath) {
+				lastResolvedDurationRef.current = null;
+				isResolvingDurationRef.current = false;
+				setVideoReady(false);
+				setSupplementalAudioPath(null);
+				setPreparedAudioTracks([]);
+				return;
+			}
 
 			const video = videoRef.current;
-			if (!video) {
-				return () => {
-					cancelled = true;
-				};
-			}
+			if (!video) return;
 			video.pause();
 			video.currentTime = 0;
 			allowPlaybackRef.current = false;
@@ -1119,41 +1766,58 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 				videoReadyRafRef.current = null;
 			}
 			video.load();
-
-			return () => {
-				cancelled = true;
-			};
 		}, [videoPath]);
 
 		useEffect(() => {
-			const video = videoRef.current;
-			const supplementalAudio = supplementalAudioRef.current;
-			if (!video || !supplementalAudio || !supplementalAudioPath) {
-				return;
-			}
-
-			const activeSpeedRegion =
-				speedRegions.find(
-					(region) => currentTime * 1000 >= region.startMs && currentTime * 1000 < region.endMs,
-				) ?? null;
-			supplementalAudio.playbackRate = activeSpeedRegion ? activeSpeedRegion.speed : 1;
-
-			if (!isPlaying) {
-				supplementalAudio.pause();
-				if (Math.abs(supplementalAudio.currentTime - currentTime) > 0.05) {
-					supplementalAudio.currentTime = currentTime;
+			readyAudioTrackOrdinalsRef.current.clear();
+			setPreparedAudioTracks([]);
+			syncFollowerMediaRef.current(true);
+			if (!videoPath || audioTrackOrdinals.length === 0) return;
+			let cancelled = false;
+			void Promise.all(
+				audioTrackOrdinals.map(async (trackOrdinal) => {
+					const fileBacked = audioTrackClipsRef.current.find(
+						(clip) => clip.trackOrdinal === trackOrdinal && isFileBackedAudioClip(clip),
+					);
+					if (fileBacked?.sourcePath) {
+						// Standalone audio file (voice-over): playable directly, no extraction.
+						return { trackOrdinal, path: toFileUrl(fileBacked.sourcePath) };
+					}
+					try {
+						const result = await window.electronAPI.preparePreviewAudioTrack(
+							videoPath,
+							trackOrdinal,
+						);
+						return result.success && result.path ? { trackOrdinal, path: result.path } : null;
+					} catch {
+						return null;
+					}
+				}),
+			).then((tracks) => {
+				if (!cancelled) {
+					setPreparedAudioTracks(
+						tracks.filter((track): track is PreparedPreviewAudioTrack => track !== null),
+					);
 				}
-				return;
-			}
-
-			if (Math.abs(supplementalAudio.currentTime - video.currentTime) > 0.15) {
-				supplementalAudio.currentTime = video.currentTime;
-			}
-
-			supplementalAudio.play().catch(() => {
-				// Keep video playback running even if supplemental preview audio is unavailable.
 			});
-		}, [currentTime, isPlaying, speedRegions, supplementalAudioPath]);
+			return () => {
+				cancelled = true;
+			};
+		}, [audioTrackOrdinals, fileBackedAudioSourceKey, videoPath]);
+
+		// Followers react to transport events and clip/source changes. Ongoing drift
+		// checks are triggered by updateTransportClock at 500ms intervals, not by
+		// React's playhead snapshots.
+		useEffect(() => {
+			syncFollowerMediaRef.current(true);
+		}, [
+			audioTrackClips,
+			isPlaying,
+			preparedAudioTracks,
+			speedRegions,
+			supplementalAudioPath,
+			webcamVideoPath,
+		]);
 
 		useEffect(() => {
 			if (!pixiReady || !videoReady) return;
@@ -1220,13 +1884,25 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 				allowPlaybackRef,
 				currentTimeRef,
 				timeUpdateAnimationRef,
-				onPlayStateChange: (playing) => onPlayStateChangeRef.current(playing),
-				onTimeUpdate: (time) => onTimeUpdateRef.current(time),
+				onPlayStateChange: (playing) => {
+					onPlayStateChangeRef.current(playing);
+					syncFollowerMediaRef.current(true);
+				},
+				onTimeUpdate: (time) => {
+					if (!externalTransportActiveRef.current) {
+						updateTransportClock(time * 1000, time * 1000);
+					} else if (!isPlayingRef.current) {
+						syncFollowerMediaRef.current(true);
+						renderPreviewFrameRef.current();
+					}
+					onTimeUpdateRef.current(time);
+				},
 				trimRegionsRef,
 				speedRegionsRef,
 				isScrubbingRef,
 				scrubEndTimerRef,
 				onScrubChange: (scrubbing) => setIsScrubbing(scrubbing),
+				externalTransportActiveRef,
 			});
 
 			video.addEventListener("play", handlePlay);
@@ -1275,7 +1951,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 
 				videoSpriteRef.current = null;
 			};
-		}, [pixiReady, videoReady]);
+		}, [pixiReady, updateTransportClock, videoReady]);
 
 		useEffect(() => {
 			if (!pixiReady || !videoReady) return;
@@ -1314,7 +1990,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 					motionBlurState: motionBlurStateRef.current,
 					// Content time, not wall-clock, so motion-blur velocity matches export and stays
 					// correct under speed regions (frameRenderer passes the same content timeMs).
-					frameTimeMs: currentTimeRef.current,
+					frameTimeMs: timelineCurrentTimeRef.current,
 				});
 
 				state.x = appliedTransform.x;
@@ -1343,13 +2019,21 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 			let lastMotionBlurActive: boolean | null = null;
 			let lastTransformIsIdentity = true;
 			let lastPerspectiveValue = 0;
+			let frameStartedAtMs = performance.now();
 			const ticker = () => {
+				frameStartedAtMs = performance.now();
 				const { region, strength, blendedScale, rotation3D, transition } = findDominantRegion(
 					zoomRegionsRef.current,
-					currentTimeRef.current,
+					timelineCurrentTimeRef.current,
 					{
 						connectZooms: true,
 						cursorTelemetry: cursorTelemetryRef.current,
+						cursorFocusSampler:
+							smartCursorEnabledRef.current && semanticNativeCursorPathRef.current
+								? sampleSemanticCameraFocus
+								: undefined,
+						cursorFocusSamplerKey: semanticNativeCursorPathRef.current,
+						cursorTimeMs: currentTimeRef.current,
 					},
 				);
 
@@ -1369,7 +2053,20 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 					// findDominantRegion resolved focus at. Falling back to the depth preset would
 					// zoom/pan to a different level than export.
 					const zoomScale = blendedScale ?? getZoomScale(region);
-					const regionFocus = region.focus;
+					const sourceDimensions = lockedVideoDimensionsRef.current;
+					const regionFocus =
+						region.focusSpace === "source" && sourceDimensions
+							? clampFocusToScale(
+									mapSourceFocusToStage({
+										focus: region.focus,
+										stageSize: stageSizeRef.current,
+										baseOffset: baseOffsetRef.current,
+										sourceSize: sourceDimensions,
+										baseScale: baseScaleRef.current,
+									}),
+									zoomScale,
+								)
+							: region.focus;
 
 					targetScaleFactor = zoomScale;
 					targetFocus = regionFocus;
@@ -1388,7 +2085,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 						const focusDtMs =
 							prevZoomTimeMsRef.current === null
 								? 0
-								: currentTimeRef.current - prevZoomTimeMsRef.current;
+								: timelineCurrentTimeRef.current - prevZoomTimeMsRef.current;
 						if (targetProgress >= 0.999) {
 							// Full zoom: adaptive smoothing, faster when far, decelerating when close.
 							const prev = smoothedAutoFocusRef.current ?? raw;
@@ -1450,6 +2147,9 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 							x: interpolatedTransform.x,
 							y: interpolatedTransform.y,
 						});
+						if (region.focusMode === "auto") {
+							smoothedAutoFocusRef.current = targetFocus;
+						}
 						targetProgress = 1;
 					}
 				}
@@ -1476,14 +2176,26 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 				// Chase the eased target with a spring so the camera glides (no jerk at the steep
 				// start of the ease, no snap at close-region seams). Step by content time while
 				// playing; snap to the exact target when paused/seeking/scrubbing for crisp frames.
-				const nowMs = currentTimeRef.current;
+				const nowMs = timelineCurrentTimeRef.current;
 				const prevMs = prevZoomTimeMsRef.current;
 				const animating = isPlayingRef.current && !isSeekingRef.current && !isScrubbingRef.current;
 				const dtMs = prevMs === null ? 0 : nowMs - prevMs;
+				const synchronizedAutoZoomIn =
+					region?.source === "auto" &&
+					region.focusMode === "auto" &&
+					Number.isFinite(region.zoomInDurationMs) &&
+					nowMs >= region.startMs &&
+					nowMs <= region.startMs + Math.max(1, region.zoomInDurationMs ?? 1);
 				let appliedScale: number;
 				let appliedX: number;
 				let appliedY: number;
-				if (!animating || prevMs === null || dtMs <= 0 || dtMs > 80) {
+				if (
+					!animating ||
+					region?.motionProfile === "professional-v2" ||
+					synchronizedAutoZoomIn ||
+					prevMs === null ||
+					dtMs <= 0
+				) {
 					resetZoomSpring(zoomSpringRef.current, projectedTransform);
 					appliedScale = projectedTransform.scale;
 					appliedX = projectedTransform.x;
@@ -1570,10 +2282,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 						if (frame) {
 							// Position comes from the precomputed offline-smoothed path; the frame still
 							// supplies the cursor image, type, and click timing.
-							const smoothedPos = getSmoothedCursorPath(
-								cursorRecordingDataRef.current,
-								cursorSmoothingRef.current,
-							)?.sampleAt(timeMs);
+							const smoothedPos = smoothedNativeCursorPathRef.current?.sampleAt(timeMs);
 							const displaySample = smoothedPos
 								? { ...frame.sample, cx: smoothedPos.cx, cy: smoothedPos.cy }
 								: frame.sample;
@@ -1733,14 +2442,75 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 					}
 				}
 			};
+			const samplePreviewPerformance = () => {
+				const currentState = previewResolutionControllerRef.current;
+				if (!currentState.active) return;
 
-			app.ticker.add(ticker);
-			return () => {
-				if (app && app.ticker) {
-					app.ticker.remove(ticker);
+				const nowMs = performance.now();
+				const video = videoRef.current;
+				const getPlaybackQuality = (
+					video as
+						| (HTMLVideoElement & {
+								getVideoPlaybackQuality?: () => VideoPlaybackQuality;
+						  })
+						| null
+				)?.getVideoPlaybackQuality;
+				const playbackQuality =
+					video && typeof getPlaybackQuality === "function"
+						? getPlaybackQuality.call(video)
+						: undefined;
+				const nextState = samplePreviewResolutionPerformance(currentState, {
+					nowMs,
+					frameTimeMs: Math.max(0, nowMs - frameStartedAtMs),
+					playbackQuality: playbackQuality
+						? {
+								droppedVideoFrames: playbackQuality.droppedVideoFrames,
+								totalVideoFrames: playbackQuality.totalVideoFrames,
+							}
+						: undefined,
+				});
+				previewResolutionControllerRef.current = nextState;
+				if (nextState.resolution !== currentState.resolution) {
+					applyPreviewResolution(nextState.resolution);
 				}
 			};
-		}, [pixiReady, videoReady]);
+
+			const renderStoppedFrame = () => {
+				ticker();
+				app.render();
+			};
+			renderPreviewFrameRef.current = renderStoppedFrame;
+			app.ticker.add(ticker);
+			// Pixi renders at LOW priority; sample at UTILITY so p95 includes scene update + render.
+			app.ticker.add(samplePreviewPerformance, undefined, UPDATE_PRIORITY.UTILITY);
+			if (isPlayingRef.current || isScrubbingRef.current) {
+				app.start();
+			} else {
+				app.stop();
+				renderStoppedFrame();
+			}
+			return () => {
+				renderPreviewFrameRef.current = () => {
+					// Ignore late media events after the Pixi scene is torn down.
+				};
+				if (app && app.ticker) {
+					app.ticker.remove(ticker);
+					app.ticker.remove(samplePreviewPerformance);
+				}
+			};
+		}, [applyPreviewResolution, pixiReady, sampleSemanticCameraFocus, videoReady]);
+
+		useEffect(() => {
+			if (!pixiReady || !videoReady) return;
+			const app = appRef.current;
+			if (!app) return;
+			if (isPlaying || isScrubbing) {
+				app.start();
+				return;
+			}
+			app.stop();
+			renderPreviewFrameRef.current();
+		}, [isPlaying, isScrubbing, pixiReady, videoReady]);
 
 		const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
 			const video = e.currentTarget;
@@ -1754,6 +2524,9 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 			video.pause();
 			allowPlaybackRef.current = false;
 			currentTimeRef.current = 0;
+			timelineCurrentTimeRef.current = 0;
+			lastTransportClockRef.current = { timelineMs: 0, sourceMs: 0, sourceActive: true };
+			lastFollowerBoundaryKeyRef.current = null;
 
 			if (videoReadyRafRef.current) {
 				cancelAnimationFrame(videoReadyRafRef.current);
@@ -1822,37 +2595,9 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 				return;
 			}
 
-			const activeSpeedRegion =
-				speedRegions.find(
-					(region) => currentTime * 1000 >= region.startMs && currentTime * 1000 < region.endMs,
-				) ?? null;
-			webcamVideo.playbackRate = activeSpeedRegion ? activeSpeedRegion.speed : 1;
-
-			if (!isPlaying) {
-				webcamVideo.pause();
-				if (Math.abs(webcamVideo.currentTime - currentTime) > 0.05) {
-					webcamVideo.currentTime = currentTime;
-				}
-				return;
-			}
-
-			if (Math.abs(webcamVideo.currentTime - currentTime) > 0.15) {
-				webcamVideo.currentTime = currentTime;
-			}
-
-			webcamVideo.play().catch(() => {
-				// Ignore webcam autoplay restoration failures.
-			});
-		}, [currentTime, isPlaying, speedRegions, webcamVideoPath]);
-
-		useEffect(() => {
-			const webcamVideo = webcamVideoRef.current;
-			if (!webcamVideo || !webcamVideoPath) {
-				return;
-			}
-
 			webcamVideo.pause();
 			webcamVideo.currentTime = 0;
+			syncFollowerMediaRef.current(true);
 		}, [webcamVideoPath]);
 
 		useEffect(() => {
@@ -1882,6 +2627,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 		const backgroundStyle = isImageUrl
 			? { backgroundImage: `url(${resolvedWallpaper || ""})` }
 			: { background: resolvedWallpaper || "" };
+		const isFullBleed = backgroundMode === "none";
 
 		return (
 			<div
@@ -1901,14 +2647,15 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 					),
 				}}
 			>
-				{/* Background always renders as a DOM element so it can be blurred. */}
-				<div
-					className="absolute inset-0 bg-cover bg-center"
-					style={{
-						...backgroundStyle,
-						filter: showBlur ? "blur(2px)" : "none",
-					}}
-				/>
+				{!isFullBleed && (
+					<div
+						className="absolute inset-0 bg-cover bg-center"
+						style={{
+							...backgroundStyle,
+							filter: showBlur ? "blur(2px)" : "none",
+						}}
+					/>
+				)}
 				<div
 					ref={composite3DRef}
 					className="absolute inset-0"
@@ -2023,18 +2770,27 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 										region: blurRegion,
 									})),
 								].sort((a, b) => a.region.zIndex - b.region.zIndex);
-								const previewSnapshotCanvas =
-									filteredBlurRegions.length > 0
-										? (() => {
-												const app = appRef.current;
-												if (!app?.renderer?.extract) return null;
-												try {
-													return app.renderer.extract.canvas(app.stage);
-												} catch {
-													return null;
-												}
-											})()
-										: null;
+								let previewSnapshotCanvas = blurPreviewSnapshotRef.current;
+								if (filteredBlurRegions.length > 0) {
+									const nowMs = performance.now();
+									const snapshotTimeMs = Math.round(timelineCurrentTimeRef.current);
+									const shouldRefresh = isPlayingRef.current
+										? nowMs - lastBlurSnapshotAtRef.current >= 200
+										: snapshotTimeMs !== lastBlurSnapshotTimeMsRef.current;
+									if (shouldRefresh || !blurPreviewSnapshotRef.current) {
+										const app = appRef.current;
+										if (app?.renderer?.extract) {
+											try {
+												blurPreviewSnapshotRef.current = app.renderer.extract.canvas(app.stage);
+												lastBlurSnapshotAtRef.current = nowMs;
+												lastBlurSnapshotTimeMsRef.current = snapshotTimeMs;
+											} catch {
+												blurPreviewSnapshotRef.current = null;
+											}
+										}
+									}
+									previewSnapshotCanvas = blurPreviewSnapshotRef.current;
+								}
 
 								// Re-clicking a selected annotation cycles through any overlapping ones.
 								const handleAnnotationClick = (clickedId: string) => {
@@ -2155,8 +2911,24 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 					onError={() => onError("Failed to load video")}
 				/>
 				{supplementalAudioPath && (
-					<audio ref={supplementalAudioRef} src={supplementalAudioPath} preload="auto" />
+					<audio
+						ref={supplementalAudioRef}
+						src={supplementalAudioPath}
+						preload="auto"
+						muted={audioTrackClips.length > 0}
+					/>
 				)}
+				{preparedAudioTracks.map(({ trackOrdinal, path }) => (
+					<audio
+						key={trackOrdinal}
+						ref={getPreviewAudioTrackRef(trackOrdinal)}
+						src={path}
+						preload="auto"
+						onLoadedData={() => markPreviewAudioTrackReady(trackOrdinal)}
+						onCanPlay={() => markPreviewAudioTrackReady(trackOrdinal)}
+						onError={() => markPreviewAudioTrackFailed(trackOrdinal)}
+					/>
+				))}
 			</div>
 		);
 	},

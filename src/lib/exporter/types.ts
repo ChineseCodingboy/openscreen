@@ -11,15 +11,23 @@ export interface ExportProgress {
 	totalFrames: number;
 	percentage: number;
 	estimatedTimeRemaining: number; // seconds
-	phase?: "extracting" | "finalizing";
+	phase?: "analyzing" | "video" | "audio" | "extracting" | "finalizing";
 	renderProgress?: number; // 0-100, GIF render phase
 }
+
+export type ExportPath = "source-copy" | "packet-remux" | "direct-transcode" | "composite";
 
 export interface ExportResult {
 	success: boolean;
 	blob?: Blob;
 	error?: string;
 	warnings?: string[];
+	path?: ExportPath;
+	diagnostics?: {
+		frameCount?: number;
+		frameRate?: number;
+		stageDurationsMs?: Record<string, number>;
+	};
 }
 
 export interface VideoFrameData {

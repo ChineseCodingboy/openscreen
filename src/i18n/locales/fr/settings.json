@@ -8,7 +8,8 @@
 			"title": "Mode focus",
 			"manual": "Manuel",
 			"auto": "Auto",
-			"autoDescription": "La caméra suit la position du curseur enregistré"
+			"autoDescription": "La caméra suit la position du curseur enregistré",
+			"lockedDisclaimer": "Contrôlé par l'interrupteur global d'Auto-Focus de la timeline. Désactivez-le pour régler le mode de mise au point par zoom."
 		},
 		"threeD": {
 			"title": "Rotation 3D",
@@ -68,7 +69,10 @@
 		"uploadCustom": "Téléverser une image",
 		"gradientLabel": "Dégradé {{index}}",
 		"colorWheel": "Roue chromatique",
-		"colorPalette": "Palette de couleurs"
+		"colorPalette": "Palette de couleurs",
+		"withBackground": "Avec arrière-plan",
+		"noBackground": "Sans arrière-plan",
+		"noBackgroundDescription": "Affiche uniquement l’enregistrement bord à bord. L’export correspondra à l’aperçu."
 	},
 	"crop": {
 		"title": "Recadrage",
@@ -92,7 +96,8 @@
 		"title": "Résolution d'export",
 		"low": "720p",
 		"medium": "1080p",
-		"high": "Source"
+		"high": "Original",
+		"source": "Source"
 	},
 	"gifSettings": {
 		"frameRate": "Fréquence d'images GIF",
@@ -108,11 +113,6 @@
 		"videoButton": "Exporter la vidéo",
 		"gifButton": "Exporter le GIF",
 		"chooseSaveLocation": "Choisir l'emplacement d'enregistrement"
-	},
-	"support": {
-		"reportBug": "Signaler un bug",
-		"saveDiagnostics": "Enregistrer les diagnostics",
-		"starOnGithub": "Étoile sur GitHub"
 	},
 	"imageUpload": {
 		"invalidFileType": "Type de fichier invalide",
@@ -216,7 +216,10 @@
 		"smoothing": "Lissage",
 		"motionBlur": "Flou de mouvement",
 		"clickBounce": "Rebond au clic",
-		"clipToBounds": "Rogner au canevas"
+		"clipToBounds": "Rogner au canevas",
+		"smartMotion": "Mouvement intelligent",
+		"smartMotionDescription": "Conserve les arrêts et interactions utiles et remplace les détours accidentels par un trajet direct et fluide.",
+		"clipToBoundsDescription": "Garde le curseur dans le cadre de la vidéo. Désactivez pour laisser le curseur dépasser les bords - utile en zoom ou en panoramique."
 	},
 	"language": {
 		"title": "Langue"

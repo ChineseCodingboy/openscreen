@@ -72,6 +72,28 @@ interface ZoomTransformGeometry {
 	focusY: number;
 }
 
+export function mapSourceFocusToStage(options: {
+	focus: { cx: number; cy: number };
+	stageSize: { width: number; height: number };
+	baseOffset: { x: number; y: number };
+	sourceSize: { width: number; height: number };
+	baseScale: number;
+}) {
+	const { focus, stageSize, baseOffset, sourceSize, baseScale } = options;
+	if (
+		stageSize.width <= 0 ||
+		stageSize.height <= 0 ||
+		sourceSize.width <= 0 ||
+		sourceSize.height <= 0
+	) {
+		return { cx: 0.5, cy: 0.5 };
+	}
+	return {
+		cx: (baseOffset.x + focus.cx * sourceSize.width * baseScale) / stageSize.width,
+		cy: (baseOffset.y + focus.cy * sourceSize.height * baseScale) / stageSize.height,
+	};
+}
+
 export function computeZoomTransform({
 	stageSize,
 	baseMask,

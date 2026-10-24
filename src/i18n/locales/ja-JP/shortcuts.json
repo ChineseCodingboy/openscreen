@@ -16,6 +16,7 @@
 	"registrationFailed": "ショートカットの登録に失敗しました。他のアプリで使用中の可能性があります。別のキーをお試しください。",
 	"actions": {
 		"openApp": "アプリを開く",
+		"summonHud": "録画バーを表示",
 		"addZoom": "ズームを追加",
 		"addTrim": "トリムを追加",
 		"addSpeed": "速度を追加",
@@ -31,8 +32,6 @@
 		"cycleAnnotationsForward": "注釈を順に切り替え",
 		"cycleAnnotationsBackward": "注釈を逆順に切り替え",
 		"deleteSelectedAlt": "選択を削除 (alt)",
-		"panTimeline": "タイムラインをパン",
-		"zoomTimeline": "タイムラインをズーム",
 		"frameBack": "フレームを戻す",
 		"frameForward": "フレームを進める"
 	}

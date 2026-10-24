@@ -43,6 +43,7 @@ export type NativeWindowsRecordingStartResult = {
 	recordingId?: number;
 	path?: string;
 	helperPath?: string;
+	captureStartedAtMs?: number;
 	error?: string;
 };
 

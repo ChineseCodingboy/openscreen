@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import sampleVideoUrl from "../../../tests/fixtures/sample.webm?url";
 import { BackgroundLoadError } from "../wallpaper";
+import { FrameRenderer } from "./frameRenderer";
 import { GifExporter } from "./gifExporter";
 import type { ExportProgress } from "./types";
 
@@ -40,6 +41,36 @@ describe("GifExporter (real browser)", () => {
 		const finalizing = progressEvents.filter((p) => p.phase === "finalizing");
 		expect(finalizing.length).toBeGreaterThan(0);
 		expect(finalizing.at(-1)!.percentage).toBe(100);
+	});
+
+	it("renders every speed-adjusted media frame from the background when video is hidden", async () => {
+		const renderBackground = vi.spyOn(FrameRenderer.prototype, "renderBackgroundFrame");
+		try {
+			const exporter = new GifExporter({
+				videoUrl: sampleVideoUrl,
+				width: 320,
+				height: 180,
+				frameRate: 30,
+				loop: true,
+				sizePreset: "medium",
+				wallpaper: "#1a1a2e",
+				zoomRegions: [],
+				videoTrackClips: [{ id: "hidden", startMs: 0, endMs: 1000, sourceStartMs: 0 }],
+				videoTrackHidden: true,
+				speedRegions: [{ id: "fast", startMs: 0, endMs: 1000, speed: 2 }],
+				showShadow: false,
+				shadowIntensity: 0,
+				showBlur: false,
+				cropRegion: { x: 0, y: 0, width: 1, height: 1 },
+			});
+
+			const result = await exporter.export();
+
+			expect(result.success, result.error).toBe(true);
+			expect(renderBackground).toHaveBeenCalledTimes(15);
+		} finally {
+			renderBackground.mockRestore();
+		}
 	});
 
 	it("exports successfully with an image wallpaper (served by Vite dev server)", async () => {

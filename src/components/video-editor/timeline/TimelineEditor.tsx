@@ -5,7 +5,9 @@ import {
 	Check,
 	ChevronDown,
 	Gauge,
+	LoaderCircle,
 	MessageSquare,
+	MousePointer2,
 	Plus,
 	ScanEye,
 	Scissors,
@@ -28,20 +30,33 @@ import { useAudioPeaks } from "@/hooks/useAudioPeaks";
 import { matchesShortcut } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 import { ASPECT_RATIOS, type AspectRatio, getAspectRatioLabel } from "@/utils/aspectRatioUtils";
-import { formatShortcut } from "@/utils/platformUtils";
 import { BLUR_REGIONS_ENABLED } from "../featureFlags";
-import type { AnnotationRegion, SpeedRegion, TrimRegion, ZoomRegion } from "../types";
+import { toFileUrl } from "../projectPersistence";
+import {
+	type AnnotationRegion,
+	type AudioTrackClip,
+	isFileBackedAudioClip,
+	type SpeedRegion,
+	type TrimRegion,
+	type VideoTrackClip,
+	type ZoomRegion,
+} from "../types";
+import AutoCaptionTrack from "./AutoCaptionTrack";
 import BackgroundWaveform from "./BackgroundWaveform";
+import { type CutGuideState, snapCutTime } from "./cutGuide";
 import Item from "./Item";
 import KeyframeMarkers from "./KeyframeMarkers";
 import Row from "./Row";
 import TimelineWrapper from "./TimelineWrapper";
+import { groupAudioTrackClips, isAudioMixItemId, MIN_CUT_DURATION_MS } from "./timelineCommands";
 
 const ZOOM_ROW_ID = "row-zoom";
 const TRIM_ROW_ID = "row-trim";
 const ANNOTATION_ROW_ID = "row-annotation";
 const BLUR_ROW_ID = "row-blur";
 const SPEED_ROW_ID = "row-speed";
+const VIDEO_ROW_ID = "row-video";
+const AUDIO_ROW_ID = "row-audio";
 const FALLBACK_RANGE_MS = 1000;
 const TARGET_MARKER_COUNT = 12;
 
@@ -54,6 +69,7 @@ interface TimelineEditorProps {
 	onZoomAdded: (span: Span) => void;
 	/** Magic-wand auto-zoom toggle state + handler. */
 	autoZoomEnabled?: boolean;
+	autoZoomAnalysisProgress?: { completed: number; total: number } | null;
 	onToggleAutoZoom?: (enabled: boolean) => void;
 	/** Global Auto-Focus toggle state + handler. */
 	autoFocusAll?: boolean;
@@ -62,6 +78,11 @@ interface TimelineEditorProps {
 	onZoomDelete: (id: string) => void;
 	selectedZoomId: string | null;
 	onSelectZoom: (id: string | null) => void;
+	videoTrackClips?: VideoTrackClip[];
+	onVideoTrackSpanChange?: (id: string, span: Span) => void;
+	onVideoTrackDelete?: (id: string) => void;
+	selectedVideoTrackId?: string | null;
+	onSelectVideoTrack?: (id: string | null) => void;
 	trimRegions?: TrimRegion[];
 	onTrimAdded?: (span: Span) => void;
 	onTrimSpanChange?: (id: string, span: Span) => void;
@@ -86,6 +107,11 @@ interface TimelineEditorProps {
 	onSpeedDelete?: (id: string) => void;
 	selectedSpeedId?: string | null;
 	onSelectSpeed?: (id: string | null) => void;
+	audioTrackClips?: AudioTrackClip[];
+	onAudioTrackSpanChange?: (id: string, span: Span) => void;
+	onAudioTrackDelete?: (id: string) => void;
+	selectedAudioTrackId?: string | null;
+	onSelectAudioTrack?: (id: string | null) => void;
 	aspectRatio: AspectRatio;
 	onAspectRatioChange: (aspectRatio: AspectRatio) => void;
 	videoUrl?: string;
@@ -95,6 +121,18 @@ interface TimelineEditorProps {
 	isGeneratingCaptions?: boolean;
 	/** Localized label for the auto-captions button (lives in the `editor` namespace). */
 	captionsLabel?: string;
+	onCutItem?: (id: string, cutMs: number) => void;
+	onRippleDeleteItem?: (id: string) => void;
+	onCopyItem?: (id: string) => void;
+	onPasteItems?: (atMs: number) => void;
+	onDuplicateItem?: (id: string) => void;
+	onCutItems?: (ids: string[], cutMs: number) => void;
+	onDeleteItems?: (ids: string[], ripple: boolean) => void;
+	onCopyItems?: (ids: string[]) => void;
+	onDuplicateItems?: (ids: string[]) => void;
+	onBatchItemSpanChange?: (changes: Array<{ id: string; span: Span }>) => void;
+	videoFrameRate?: number;
+	lockedTrackKinds?: string[];
 }
 
 interface TimelineScaleConfig {
@@ -112,7 +150,16 @@ interface TimelineRenderItem {
 	zoomCustomScale?: number;
 	speedValue?: number;
 	isAutoFocus?: boolean;
-	variant: "zoom" | "trim" | "annotation" | "speed" | "blur";
+	variant:
+		| "video"
+		| "zoom"
+		| "trim"
+		| "annotation"
+		| "speed"
+		| "blur"
+		| "mixed-audio"
+		| "system-audio"
+		| "microphone-audio";
 }
 
 const SCALE_CANDIDATES = [
@@ -198,25 +245,11 @@ function clampVisibleRange(candidate: Range, totalMs: number): Range {
 	return { start, end: start + span };
 }
 
-function normalizeWheelDelta(delta: number, deltaMode: number, pageSizePx: number): number {
-	if (deltaMode === WheelEvent.DOM_DELTA_LINE) {
-		return delta * 16;
-	}
-
-	if (deltaMode === WheelEvent.DOM_DELTA_PAGE) {
-		return delta * pageSizePx;
-	}
-
-	return delta;
-}
-
 function formatTimeLabel(milliseconds: number, intervalMs: number) {
 	const totalSeconds = milliseconds / 1000;
 	const hours = Math.floor(totalSeconds / 3600);
 	const minutes = Math.floor((totalSeconds % 3600) / 60);
 	const seconds = totalSeconds % 60;
-
-	const fractionalDigits = intervalMs < 250 ? 2 : intervalMs < 1000 ? 1 : 0;
 
 	if (hours > 0) {
 		const minutesString = minutes.toString().padStart(2, "0");
@@ -224,13 +257,17 @@ function formatTimeLabel(milliseconds: number, intervalMs: number) {
 		return `${hours}:${minutesString}:${secondsString}`;
 	}
 
-	if (fractionalDigits > 0) {
-		const secondsWithFraction = seconds.toFixed(fractionalDigits);
-		const [wholeSeconds, fraction] = secondsWithFraction.split(".");
-		return `${minutes}:${wholeSeconds.padStart(2, "0")}.${fraction}`;
+	if (minutes > 0) {
+		return `${minutes}:${Math.floor(seconds).toString().padStart(2, "0")}`;
 	}
 
-	return `${minutes}:${Math.floor(seconds).toString().padStart(2, "0")}`;
+	// Under a minute: plain seconds ("3s"), with decimals only when the axis is
+	// zoomed to sub-second intervals ("1.5s", "1.75s").
+	const fractionalDigits = intervalMs < 250 ? 2 : intervalMs < 1000 ? 1 : 0;
+	if (fractionalDigits > 0) {
+		return `${Number(seconds.toFixed(fractionalDigits))}s`;
+	}
+	return `${Math.floor(seconds)}s`;
 }
 
 function formatPlayheadTime(ms: number): string {
@@ -239,6 +276,24 @@ function formatPlayheadTime(ms: number): string {
 	const sec = s % 60;
 	if (min > 0) return `${min}:${sec.toFixed(1).padStart(4, "0")}`;
 	return `${sec.toFixed(1)}s`;
+}
+
+function formatCutTime(ms: number): string {
+	const totalMs = Math.max(0, Math.round(ms));
+	const minutes = Math.floor(totalMs / 60_000);
+	const seconds = Math.floor((totalMs % 60_000) / 1000);
+	const milliseconds = totalMs % 1000;
+	return `${minutes}:${String(seconds).padStart(2, "0")}.${String(milliseconds).padStart(3, "0")}`;
+}
+
+function trackKindForRow(rowId: string): string | null {
+	if (rowId === VIDEO_ROW_ID) return "video";
+	if (rowId === AUDIO_ROW_ID) return "audio";
+	if (rowId === ZOOM_ROW_ID) return "zoom";
+	if (rowId === ANNOTATION_ROW_ID) return "annotation";
+	if (rowId === BLUR_ROW_ID) return "blur";
+	if (rowId === SPEED_ROW_ID) return "speed";
+	return null;
 }
 
 function shouldStartTimelineScrub(target: EventTarget | null, timelineElement: HTMLElement) {
@@ -466,14 +521,6 @@ function TimelineAxis({
 			}
 		}
 
-		if (visibleStart <= maxTime) {
-			markerTimes.add(Math.round(visibleStart));
-		}
-
-		if (videoDurationMs > 0) {
-			markerTimes.add(Math.round(videoDurationMs));
-		}
-
 		const sorted = Array.from(markerTimes)
 			.filter((time) => time <= maxTime)
 			.sort((a, b) => a - b);
@@ -535,11 +582,11 @@ function TimelineAxis({
 				return (
 					<div key={marker.time} style={markerStyle}>
 						<div className="flex flex-col items-center pb-1">
-							<div className="h-2.5 w-[1px] bg-white/20 mb-1" />
+							<div className="h-2.5 w-[1px] bg-white/25 mb-1" />
 							<span
 								className={cn(
 									"text-[10px] font-medium tabular-nums tracking-tight",
-									marker.time === currentTimeMs ? "text-[#34B27B]" : "text-slate-500",
+									marker.time === currentTimeMs ? "text-[#34B27B]" : "text-slate-400",
 								)}
 							>
 								{marker.label}
@@ -559,18 +606,27 @@ function Timeline({
 	onSeek,
 	onRangeChange,
 	onSelectZoom,
+	onSelectVideoTrack,
 	onSelectTrim,
 	onSelectAnnotation,
 	onSelectBlur,
 	onSelectSpeed,
-	selectedZoomId,
-	selectedTrimId,
-	selectedAnnotationId,
-	selectedBlurId,
-	selectedSpeedId,
+	onSelectAudioTrack,
+	selectedItemIds,
+	onSelectItem,
+	onBoxSelect,
+	onClearSelection,
+	toolMode,
+	onCutItem,
+	videoFrameRate,
+	lockedTrackKinds,
 	keyframes = [],
 	videoUrl,
+	voiceoverAudioUrl,
 	showTrimWaveform = false,
+	autoCaptionRegions = [],
+	selectedAnnotationId,
+	captionTrackLabel,
 }: {
 	items: TimelineRenderItem[];
 	videoDurationMs: number;
@@ -578,25 +634,60 @@ function Timeline({
 	onSeek?: (time: number) => void;
 	onRangeChange?: (updater: (previous: Range) => Range) => void;
 	onSelectZoom?: (id: string | null) => void;
+	onSelectVideoTrack?: (id: string | null) => void;
 	onSelectTrim?: (id: string | null) => void;
 	onSelectAnnotation?: (id: string | null) => void;
 	onSelectBlur?: (id: string | null) => void;
 	onSelectSpeed?: (id: string | null) => void;
-	selectedZoomId: string | null;
-	selectedTrimId?: string | null;
-	selectedAnnotationId?: string | null;
-	selectedBlurId?: string | null;
-	selectedSpeedId?: string | null;
+	onSelectAudioTrack?: (id: string | null) => void;
+	selectedItemIds: Set<string>;
+	onSelectItem: (item: TimelineRenderItem, event: React.PointerEvent<HTMLDivElement>) => void;
+	onBoxSelect: (ids: string[]) => void;
+	onClearSelection: () => void;
+	toolMode: "select" | "cut";
+	onCutItem?: (id: string, cutMs: number) => void;
+	videoFrameRate: number;
+	lockedTrackKinds: string[];
 	keyframes?: { id: string; time: number }[];
 	videoUrl?: string;
+	voiceoverAudioUrl?: string;
 	showTrimWaveform?: boolean;
+	autoCaptionRegions?: AnnotationRegion[];
+	selectedAnnotationId?: string | null;
+	captionTrackLabel?: string;
 }) {
 	const t = useScopedT("timeline");
-	const { setTimelineRef, style, sidebarWidth, range, pixelsToValue } = useTimelineContext();
+	const { setTimelineRef, style, sidebarWidth, range, pixelsToValue, valueToPixels } =
+		useTimelineContext();
 	const localTimelineRef = useRef<HTMLDivElement | null>(null);
 	const isScrubbingTimelineRef = useRef(false);
 	const scrubPointerIdRef = useRef<number | null>(null);
+	const boxPointerIdRef = useRef<number | null>(null);
+	const [boxSelection, setBoxSelection] = useState<{
+		startX: number;
+		startY: number;
+		currentX: number;
+		currentY: number;
+	} | null>(null);
+	const [cutGuide, setCutGuide] = useState<CutGuideState | null>(null);
 	const peaks = useAudioPeaks(showTrimWaveform ? videoUrl : undefined);
+	const firstAudioTrackPeaks = useAudioPeaks(showTrimWaveform ? videoUrl : undefined, 0);
+	const secondAudioTrackPeaks = useAudioPeaks(showTrimWaveform ? videoUrl : undefined, 1);
+	const voiceoverPeaks = useAudioPeaks(showTrimWaveform ? voiceoverAudioUrl : undefined);
+	const mixedAudioPeaks = useMemo(() => {
+		const trackPeaks = [firstAudioTrackPeaks, secondAudioTrackPeaks, voiceoverPeaks].filter(
+			(entry): entry is Float32Array => entry !== null,
+		);
+		if (trackPeaks.length === 0) return peaks;
+		if (trackPeaks.length === 1) return trackPeaks[0];
+		const length = Math.min(...trackPeaks.map((entry) => entry.length));
+		const mixed = new Float32Array(length);
+		for (let index = 0; index + 1 < length; index += 2) {
+			mixed[index] = Math.min(...trackPeaks.map((entry) => entry[index]));
+			mixed[index + 1] = Math.max(...trackPeaks.map((entry) => entry[index + 1]));
+		}
+		return mixed;
+	}, [firstAudioTrackPeaks, peaks, secondAudioTrackPeaks, voiceoverPeaks]);
 
 	const setRefs = useCallback(
 		(node: HTMLDivElement | null) => {
@@ -625,25 +716,129 @@ function Timeline({
 	);
 
 	const clearTimelineSelection = useCallback(() => {
+		onClearSelection();
 		onSelectZoom?.(null);
+		onSelectVideoTrack?.(null);
 		onSelectTrim?.(null);
 		onSelectAnnotation?.(null);
 		onSelectBlur?.(null);
 		onSelectSpeed?.(null);
-	}, [onSelectZoom, onSelectTrim, onSelectAnnotation, onSelectBlur, onSelectSpeed]);
+		onSelectAudioTrack?.(null);
+	}, [
+		onClearSelection,
+		onSelectZoom,
+		onSelectVideoTrack,
+		onSelectTrim,
+		onSelectAnnotation,
+		onSelectBlur,
+		onSelectSpeed,
+		onSelectAudioTrack,
+	]);
 
 	const handleTimelineClick = useCallback(
 		(e: React.MouseEvent<HTMLDivElement>) => {
+			if (toolMode === "cut") return;
 			// Items stop propagation, so this only fires on empty space
 			clearTimelineSelection();
 			seekTimelineAtClientX(e.currentTarget, e.clientX);
 		},
-		[clearTimelineSelection, seekTimelineAtClientX],
+		[clearTimelineSelection, seekTimelineAtClientX, toolMode],
+	);
+
+	const resolveCutGuide = useCallback(
+		(root: HTMLDivElement, eventTarget: EventTarget | null, clientX: number, altKey: boolean) => {
+			const rect = root.getBoundingClientRect();
+			const contentX = clientX - rect.left - sidebarWidth;
+			if (contentX < 0) return null;
+			const rawTimeMs = Math.max(
+				0,
+				Math.min(range.start + pixelsToValue(contentX), videoDurationMs),
+			);
+			const frameDurationMs = 1000 / Math.max(1, Math.min(240, videoFrameRate));
+			const snappedTimeMs = snapCutTime({
+				rawTimeMs,
+				durationMs: videoDurationMs,
+				frameRate: videoFrameRate,
+				magneticTargets: [
+					currentTimeMs,
+					...keyframes.map((keyframe) => keyframe.time),
+					...items.flatMap((item) => [item.span.start, item.span.end]),
+				],
+				magneticThresholdMs: Math.max(frameDurationMs, Math.abs(pixelsToValue(6))),
+				disableMagnet: altKey,
+			});
+			const targetElement =
+				eventTarget instanceof Element
+					? eventTarget.closest<HTMLElement>("[data-timeline-item-id]")
+					: null;
+			const targetId = targetElement?.dataset.timelineItemId ?? null;
+			const targetItem = targetId ? items.find((item) => item.id === targetId) : undefined;
+			const targetKind = targetItem ? trackKindForRow(targetItem.rowId) : null;
+			const mediaLinkLocked =
+				targetKind === "video" || targetKind === "audio"
+					? lockedTrackKinds.includes("video") || lockedTrackKinds.includes("audio")
+					: false;
+			const trackLocked = Boolean(targetKind && lockedTrackKinds.includes(targetKind));
+			const valid = Boolean(
+				targetItem &&
+					!trackLocked &&
+					!mediaLinkLocked &&
+					snappedTimeMs - targetItem.span.start >= MIN_CUT_DURATION_MS &&
+					targetItem.span.end - snappedTimeMs >= MIN_CUT_DURATION_MS,
+			);
+			return {
+				targetId,
+				rawTimeMs,
+				snappedTimeMs,
+				offsetPx: sidebarWidth + valueToPixels(snappedTimeMs - range.start),
+				valid,
+			} satisfies CutGuideState;
+		},
+		[
+			currentTimeMs,
+			items,
+			keyframes,
+			lockedTrackKinds,
+			pixelsToValue,
+			range.start,
+			sidebarWidth,
+			valueToPixels,
+			videoDurationMs,
+			videoFrameRate,
+		],
+	);
+
+	const handleCutPointerDownCapture = useCallback(
+		(event: React.PointerEvent<HTMLDivElement>) => {
+			if (toolMode !== "cut" || !onCutItem || !event.isPrimary || event.button !== 0) return;
+			const guide = resolveCutGuide(event.currentTarget, event.target, event.clientX, event.altKey);
+			setCutGuide(guide);
+			event.preventDefault();
+			event.stopPropagation();
+			if (guide?.valid && guide.targetId) {
+				onCutItem(guide.targetId, guide.snappedTimeMs);
+			}
+		},
+		[onCutItem, resolveCutGuide, toolMode],
 	);
 
 	const handleTimelinePointerDown = useCallback(
 		(e: React.PointerEvent<HTMLDivElement>) => {
 			if (!e.isPrimary || (e.pointerType === "mouse" && e.button !== 0)) {
+				return;
+			}
+			const clickedItem =
+				e.target instanceof Element
+					? e.target.closest<HTMLElement>("[data-timeline-item-id]")
+					: null;
+			if (toolMode === "select" && e.shiftKey && !clickedItem) {
+				const rect = e.currentTarget.getBoundingClientRect();
+				const x = e.clientX - rect.left;
+				const y = e.clientY - rect.top;
+				boxPointerIdRef.current = e.pointerId;
+				setBoxSelection({ startX: x, startY: y, currentX: x, currentY: y });
+				e.currentTarget.setPointerCapture(e.pointerId);
+				e.preventDefault();
 				return;
 			}
 
@@ -661,11 +856,25 @@ function Timeline({
 			e.currentTarget.setPointerCapture(e.pointerId);
 			e.preventDefault();
 		},
-		[clearTimelineSelection, seekTimelineAtClientX],
+		[clearTimelineSelection, seekTimelineAtClientX, toolMode],
 	);
 
 	const handleTimelinePointerMove = useCallback(
 		(e: React.PointerEvent<HTMLDivElement>) => {
+			if (toolMode === "cut") {
+				setCutGuide(resolveCutGuide(e.currentTarget, e.target, e.clientX, e.altKey));
+				return;
+			}
+			if (boxPointerIdRef.current === e.pointerId) {
+				const rect = e.currentTarget.getBoundingClientRect();
+				setBoxSelection((current) =>
+					current
+						? { ...current, currentX: e.clientX - rect.left, currentY: e.clientY - rect.top }
+						: null,
+				);
+				e.preventDefault();
+				return;
+			}
 			if (!isScrubbingTimelineRef.current || scrubPointerIdRef.current !== e.pointerId) {
 				return;
 			}
@@ -673,98 +882,143 @@ function Timeline({
 			seekTimelineAtClientX(e.currentTarget, e.clientX);
 			e.preventDefault();
 		},
-		[seekTimelineAtClientX],
+		[resolveCutGuide, seekTimelineAtClientX, toolMode],
 	);
 
-	const stopTimelineScrub = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-		if (!isScrubbingTimelineRef.current || scrubPointerIdRef.current !== e.pointerId) {
-			return;
-		}
+	const stopTimelineScrub = useCallback(
+		(e: React.PointerEvent<HTMLDivElement>) => {
+			if (boxPointerIdRef.current === e.pointerId && boxSelection) {
+				const rootRect = e.currentTarget.getBoundingClientRect();
+				const left = rootRect.left + Math.min(boxSelection.startX, boxSelection.currentX);
+				const right = rootRect.left + Math.max(boxSelection.startX, boxSelection.currentX);
+				const top = rootRect.top + Math.min(boxSelection.startY, boxSelection.currentY);
+				const bottom = rootRect.top + Math.max(boxSelection.startY, boxSelection.currentY);
+				const ids = [...e.currentTarget.querySelectorAll<HTMLElement>("[data-timeline-item-id]")]
+					.filter((element) => {
+						const rect = element.getBoundingClientRect();
+						return (
+							rect.right >= left && rect.left <= right && rect.bottom >= top && rect.top <= bottom
+						);
+					})
+					.map((element) => element.dataset.timelineItemId)
+					.filter((id): id is string => Boolean(id));
+				onBoxSelect(ids);
+				boxPointerIdRef.current = null;
+				setBoxSelection(null);
+				if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+					e.currentTarget.releasePointerCapture(e.pointerId);
+				}
+				return;
+			}
+			if (!isScrubbingTimelineRef.current || scrubPointerIdRef.current !== e.pointerId) {
+				return;
+			}
 
-		isScrubbingTimelineRef.current = false;
-		scrubPointerIdRef.current = null;
-		if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-			e.currentTarget.releasePointerCapture(e.pointerId);
-		}
-	}, []);
+			isScrubbingTimelineRef.current = false;
+			scrubPointerIdRef.current = null;
+			if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+				e.currentTarget.releasePointerCapture(e.pointerId);
+			}
+		},
+		[boxSelection, onBoxSelect],
+	);
 
 	const handleTimelinePointerLeave = useCallback(
 		(e: React.PointerEvent<HTMLDivElement>) => {
+			if (toolMode === "cut") {
+				setCutGuide(null);
+				return;
+			}
 			if (isScrubbingTimelineRef.current && scrubPointerIdRef.current === e.pointerId) {
 				seekTimelineAtClientX(e.currentTarget, e.clientX);
 			}
 		},
-		[seekTimelineAtClientX],
+		[seekTimelineAtClientX, toolMode],
 	);
 
+	useEffect(() => {
+		if (toolMode !== "cut") setCutGuide(null);
+	}, [toolMode]);
+
 	const handleTimelineLostPointerCapture = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+		if (boxPointerIdRef.current === e.pointerId) {
+			boxPointerIdRef.current = null;
+			setBoxSelection(null);
+		}
 		if (scrubPointerIdRef.current === e.pointerId) {
 			isScrubbingTimelineRef.current = false;
 			scrubPointerIdRef.current = null;
 		}
 	}, []);
 
-	const handleTimelineWheel = useCallback(
-		(event: React.WheelEvent<HTMLDivElement>) => {
-			if (!onRangeChange || event.ctrlKey || event.metaKey || videoDurationMs <= 0) {
-				return;
-			}
-
-			const visibleMs = range.end - range.start;
-			if (visibleMs <= 0 || videoDurationMs <= visibleMs) {
-				return;
-			}
-
-			const dominantDelta =
-				Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-			if (dominantDelta === 0) {
-				return;
-			}
-
-			event.preventDefault();
-
-			const pageWidthPx = Math.max(event.currentTarget.clientWidth - sidebarWidth, 1);
-			const normalizedDeltaPx = normalizeWheelDelta(dominantDelta, event.deltaMode, pageWidthPx);
-			const shiftMs = pixelsToValue(normalizedDeltaPx);
-
-			onRangeChange((previous) => {
-				const nextRange = clampVisibleRange(
-					{
-						start: previous.start + shiftMs,
-						end: previous.end + shiftMs,
-					},
-					videoDurationMs,
-				);
-
-				return nextRange.start === previous.start && nextRange.end === previous.end
-					? previous
-					: nextRange;
-			});
-		},
-		[onRangeChange, videoDurationMs, range.end, range.start, sidebarWidth, pixelsToValue],
-	);
-
 	const zoomItems = items.filter((item) => item.rowId === ZOOM_ROW_ID);
+	const videoItems = items.filter((item) => item.rowId === VIDEO_ROW_ID);
 	const trimItems = items.filter((item) => item.rowId === TRIM_ROW_ID);
 	const annotationItems = items.filter((item) => item.rowId === ANNOTATION_ROW_ID);
 	const blurItems = items.filter((item) => item.rowId === BLUR_ROW_ID);
 	const speedItems = items.filter((item) => item.rowId === SPEED_ROW_ID);
+	const audioItems = items.filter((item) => item.rowId === AUDIO_ROW_ID);
 
 	return (
 		<div
 			ref={setRefs}
 			style={{ ...style, touchAction: "none" }}
-			className="select-none bg-[#0b0c0f] min-h-[190px] relative cursor-pointer group"
+			className={cn(
+				"select-none bg-[#0b0c0f] min-h-[190px] relative group",
+				toolMode === "cut" ? "cursor-crosshair" : "cursor-pointer",
+			)}
 			onClick={handleTimelineClick}
+			onPointerDownCapture={handleCutPointerDownCapture}
 			onPointerDown={handleTimelinePointerDown}
 			onPointerMove={handleTimelinePointerMove}
 			onPointerUp={stopTimelineScrub}
 			onPointerCancel={stopTimelineScrub}
 			onPointerLeave={handleTimelinePointerLeave}
 			onLostPointerCapture={handleTimelineLostPointerCapture}
-			onWheel={handleTimelineWheel}
 		>
 			<div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff05_1px,transparent_1px)] bg-[length:24px_100%] pointer-events-none" />
+			{toolMode === "cut" && cutGuide && (
+				<div
+					className="pointer-events-none absolute inset-y-0 z-[70]"
+					style={{ left: cutGuide.offsetPx }}
+				>
+					<div
+						className={cn(
+							"absolute inset-y-0 left-0 w-px",
+							cutGuide.valid
+								? "bg-red-400 shadow-[0_0_10px_rgba(248,113,113,0.75)]"
+								: "bg-red-400/35",
+						)}
+					/>
+					<div
+						className={cn(
+							"absolute left-1/2 top-1 -translate-x-1/2 whitespace-nowrap rounded border px-1.5 py-0.5 text-[10px] font-medium tabular-nums shadow-lg",
+							cutGuide.valid
+								? "border-red-400/40 bg-red-500/90 text-white"
+								: "border-white/10 bg-black/85 text-slate-500",
+						)}
+					>
+						{formatCutTime(cutGuide.snappedTimeMs)}
+					</div>
+					<Scissors
+						className={cn(
+							"absolute -left-2 top-8 h-4 w-4",
+							cutGuide.valid ? "text-red-300" : "text-slate-600",
+						)}
+					/>
+				</div>
+			)}
+			{boxSelection && (
+				<div
+					className="pointer-events-none absolute z-[60] border border-[#34B27B] bg-[#34B27B]/10"
+					style={{
+						left: Math.min(boxSelection.startX, boxSelection.currentX),
+						top: Math.min(boxSelection.startY, boxSelection.currentY),
+						width: Math.abs(boxSelection.currentX - boxSelection.startX),
+						height: Math.abs(boxSelection.currentY - boxSelection.startY),
+					}}
+				/>
+			)}
 			<TimelineAxis videoDurationMs={videoDurationMs} currentTimeMs={currentTimeMs} />
 			<PlaybackCursor
 				currentTimeMs={currentTimeMs}
@@ -775,6 +1029,23 @@ function Timeline({
 				keyframes={keyframes}
 			/>
 
+			<Row id={VIDEO_ROW_ID} isEmpty={videoItems.length === 0} hint="Screen video">
+				{videoItems.map((item) => (
+					<Item
+						id={item.id}
+						key={item.id}
+						rowId={item.rowId}
+						span={item.span}
+						isSelected={selectedItemIds.has(item.id)}
+						isCutTarget={cutGuide?.targetId === item.id}
+						onSelect={(event) => onSelectItem(item, event)}
+						variant="video"
+					>
+						{item.label}
+					</Item>
+				))}
+			</Row>
+
 			<Row id={ZOOM_ROW_ID} isEmpty={zoomItems.length === 0} hint={t("hints.pressZoom")}>
 				{zoomItems.map((item) => (
 					<Item
@@ -782,8 +1053,9 @@ function Timeline({
 						key={item.id}
 						rowId={item.rowId}
 						span={item.span}
-						isSelected={item.id === selectedZoomId}
-						onSelect={() => onSelectZoom?.(item.id)}
+						isSelected={selectedItemIds.has(item.id)}
+						isCutTarget={cutGuide?.targetId === item.id}
+						onSelect={(event) => onSelectItem(item, event)}
 						zoomDepth={item.zoomDepth}
 						zoomCustomScale={item.zoomCustomScale}
 						isAutoFocus={item.isAutoFocus}
@@ -794,49 +1066,62 @@ function Timeline({
 				))}
 			</Row>
 
-			<Row
-				id={TRIM_ROW_ID}
-				isEmpty={trimItems.length === 0}
-				hint={t("hints.pressTrim")}
-				background={
-					showTrimWaveform ? (
-						<BackgroundWaveform
-							peaks={peaks}
-							videoDurationMs={videoDurationMs}
-							topInset={3}
-							bottomInset={3}
-						/>
-					) : undefined
-				}
-			>
-				{trimItems.map((item) => (
-					<Item
-						id={item.id}
-						key={item.id}
-						rowId={item.rowId}
-						span={item.span}
-						isSelected={item.id === selectedTrimId}
-						onSelect={() => onSelectTrim?.(item.id)}
-						variant="trim"
-					>
-						{item.label}
-					</Item>
-				))}
-			</Row>
+			{false && (
+				<Row
+					id={TRIM_ROW_ID}
+					isEmpty={trimItems.length === 0}
+					hint={t("hints.pressTrim")}
+					background={
+						showTrimWaveform ? (
+							<BackgroundWaveform
+								peaks={peaks}
+								videoDurationMs={videoDurationMs}
+								topInset={3}
+								bottomInset={3}
+							/>
+						) : undefined
+					}
+				>
+					{trimItems.map((item) => (
+						<Item
+							id={item.id}
+							key={item.id}
+							rowId={item.rowId}
+							span={item.span}
+							isSelected={selectedItemIds.has(item.id)}
+							isCutTarget={cutGuide?.targetId === item.id}
+							onSelect={(event) => onSelectItem(item, event)}
+							variant="trim"
+						>
+							{item.label}
+						</Item>
+					))}
+				</Row>
+			)}
 
 			<Row
 				id={ANNOTATION_ROW_ID}
-				isEmpty={annotationItems.length === 0}
+				isEmpty={annotationItems.length === 0 && autoCaptionRegions.length === 0}
 				hint={t("hints.pressAnnotation")}
 			>
+				{autoCaptionRegions.length > 0 && (
+					<AutoCaptionTrack
+						rowId={ANNOTATION_ROW_ID}
+						regions={autoCaptionRegions}
+						selectedId={selectedAnnotationId}
+						onSelect={() => onSelectAnnotation?.(autoCaptionRegions[0]?.id ?? null)}
+						label={captionTrackLabel}
+					/>
+				)}
 				{annotationItems.map((item) => (
 					<Item
 						id={item.id}
 						key={item.id}
 						rowId={item.rowId}
 						span={item.span}
-						isSelected={item.id === selectedAnnotationId}
-						onSelect={() => onSelectAnnotation?.(item.id)}
+						isSelected={selectedItemIds.has(item.id)}
+						isCutTarget={cutGuide?.targetId === item.id}
+						onSelect={(event) => onSelectItem(item, event)}
 						variant="annotation"
 					>
 						{item.label}
@@ -852,8 +1137,9 @@ function Timeline({
 							key={item.id}
 							rowId={item.rowId}
 							span={item.span}
-							isSelected={item.id === selectedBlurId}
-							onSelect={() => onSelectBlur?.(item.id)}
+							isSelected={selectedItemIds.has(item.id)}
+							isCutTarget={cutGuide?.targetId === item.id}
+							onSelect={(event) => onSelectItem(item, event)}
 							variant={item.variant}
 						>
 							{item.label}
@@ -869,10 +1155,42 @@ function Timeline({
 						key={item.id}
 						rowId={item.rowId}
 						span={item.span}
-						isSelected={item.id === selectedSpeedId}
-						onSelect={() => onSelectSpeed?.(item.id)}
+						isSelected={selectedItemIds.has(item.id)}
+						isCutTarget={cutGuide?.targetId === item.id}
+						onSelect={(event) => onSelectItem(item, event)}
 						variant="speed"
 						speedValue={item.speedValue}
+					>
+						{item.label}
+					</Item>
+				))}
+			</Row>
+
+			<Row
+				id={AUDIO_ROW_ID}
+				isEmpty={audioItems.length === 0}
+				hint="Audio"
+				background={
+					showTrimWaveform ? (
+						<BackgroundWaveform
+							peaks={mixedAudioPeaks}
+							videoDurationMs={videoDurationMs}
+							topInset={3}
+							bottomInset={3}
+						/>
+					) : undefined
+				}
+			>
+				{audioItems.map((item) => (
+					<Item
+						id={item.id}
+						key={item.id}
+						rowId={item.rowId}
+						span={item.span}
+						isSelected={selectedItemIds.has(item.id)}
+						isCutTarget={cutGuide?.targetId === item.id}
+						onSelect={(event) => onSelectItem(item, event)}
+						variant="mixed-audio"
 					>
 						{item.label}
 					</Item>
@@ -888,8 +1206,14 @@ export default function TimelineEditor({
 	currentTime,
 	onSeek,
 	zoomRegions,
+	videoTrackClips = [],
+	onVideoTrackSpanChange,
+	onVideoTrackDelete,
+	selectedVideoTrackId,
+	onSelectVideoTrack,
 	onZoomAdded,
 	autoZoomEnabled = true,
+	autoZoomAnalysisProgress,
 	onToggleAutoZoom,
 	autoFocusAll = false,
 	onToggleAutoFocusAll,
@@ -921,6 +1245,11 @@ export default function TimelineEditor({
 	onSpeedDelete,
 	selectedSpeedId,
 	onSelectSpeed,
+	audioTrackClips = [],
+	onAudioTrackSpanChange,
+	onAudioTrackDelete,
+	selectedAudioTrackId,
+	onSelectAudioTrack,
 	aspectRatio,
 	onAspectRatioChange,
 	videoUrl,
@@ -928,6 +1257,18 @@ export default function TimelineEditor({
 	onGenerateCaptions,
 	isGeneratingCaptions = false,
 	captionsLabel,
+	onCutItem,
+	onRippleDeleteItem,
+	onCopyItem,
+	onPasteItems,
+	onDuplicateItem,
+	onCutItems,
+	onDeleteItems,
+	onCopyItems,
+	onDuplicateItems,
+	onBatchItemSpanChange,
+	videoFrameRate = 60,
+	lockedTrackKinds = [],
 }: TimelineEditorProps) {
 	const t = useScopedT("timeline");
 	const totalMs = useMemo(() => Math.max(0, Math.round(videoDuration * 1000)), [videoDuration]);
@@ -944,18 +1285,11 @@ export default function TimelineEditor({
 	const [range, setRange] = useState<Range>(() => createInitialRange(totalMs));
 	const [keyframes, setKeyframes] = useState<{ id: string; time: number }[]>([]);
 	const [selectedKeyframeId, setSelectedKeyframeId] = useState<string | null>(null);
-	const [scrollLabels, setScrollLabels] = useState({
-		pan: "Scroll",
-		zoom: "Ctrl + Scroll",
-	});
+	const [toolMode, setToolMode] = useState<"select" | "cut">("select");
+	const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+	const selectionAnchorIdRef = useRef<string | null>(null);
 	const timelineContainerRef = useRef<HTMLDivElement>(null);
 	const { shortcuts: keyShortcuts, isMac } = useShortcuts();
-
-	useEffect(() => {
-		formatShortcut(["mod", "Scroll"]).then((zoom) => {
-			setScrollLabels({ pan: "Scroll", zoom });
-		});
-	}, []);
 
 	const addKeyframe = useCallback(() => {
 		if (totalMs === 0) return;
@@ -987,6 +1321,12 @@ export default function TimelineEditor({
 		onSelectZoom(null);
 	}, [selectedZoomId, onZoomDelete, onSelectZoom]);
 
+	const deleteSelectedVideoTrack = useCallback(() => {
+		if (!selectedVideoTrackId || !onVideoTrackDelete || !onSelectVideoTrack) return;
+		onVideoTrackDelete(selectedVideoTrackId);
+		onSelectVideoTrack(null);
+	}, [selectedVideoTrackId, onVideoTrackDelete, onSelectVideoTrack]);
+
 	const deleteSelectedTrim = useCallback(() => {
 		if (!selectedTrimId || !onTrimDelete || !onSelectTrim) return;
 		onTrimDelete(selectedTrimId);
@@ -1010,6 +1350,12 @@ export default function TimelineEditor({
 		onSpeedDelete(selectedSpeedId);
 		onSelectSpeed(null);
 	}, [selectedSpeedId, onSpeedDelete, onSelectSpeed]);
+
+	const deleteSelectedAudioTrack = useCallback(() => {
+		if (!selectedAudioTrackId || !onAudioTrackDelete || !onSelectAudioTrack) return;
+		onAudioTrackDelete(selectedAudioTrackId);
+		onSelectAudioTrack(null);
+	}, [selectedAudioTrackId, onAudioTrackDelete, onSelectAudioTrack]);
 
 	useEffect(() => {
 		setRange(createInitialRange(totalMs));
@@ -1073,6 +1419,9 @@ export default function TimelineEditor({
 			const isAnnotationItem = annotationRegions.some((r) => r.id === excludeId);
 			const isBlurItem = blurRegions.some((r) => r.id === excludeId);
 			const isSpeedItem = speedRegions.some((r) => r.id === excludeId);
+			const isVideoItem = videoTrackClips.some((clip) => clip.id === excludeId);
+			const audioGroups = groupAudioTrackClips(audioTrackClips);
+			const isAudioItem = Boolean(excludeId && isAudioMixItemId(excludeId));
 
 			if (isAnnotationItem || isBlurItem) {
 				return false;
@@ -1097,10 +1446,30 @@ export default function TimelineEditor({
 			if (isSpeedItem) {
 				return checkOverlap(speedRegions);
 			}
+			if (isVideoItem) {
+				return videoTrackClips.some(
+					(clip) =>
+						clip.id !== excludeId && newSpan.end > clip.startMs && newSpan.start < clip.endMs,
+				);
+			}
+			if (isAudioItem) {
+				return audioGroups.some(
+					(group) =>
+						group.id !== excludeId && newSpan.end > group.startMs && newSpan.start < group.endMs,
+				);
+			}
 
 			return false;
 		},
-		[zoomRegions, trimRegions, annotationRegions, blurRegions, speedRegions],
+		[
+			zoomRegions,
+			trimRegions,
+			annotationRegions,
+			blurRegions,
+			speedRegions,
+			videoTrackClips,
+			audioTrackClips,
+		],
 	);
 
 	// 5% of the timeline or 1000ms, whichever is larger, so it's wide enough to grab.
@@ -1139,33 +1508,9 @@ export default function TimelineEditor({
 	}, [videoDuration, totalMs, currentTimeMs, zoomRegions, onZoomAdded, defaultRegionDurationMs, t]);
 
 	const handleAddTrim = useCallback(() => {
-		if (!videoDuration || videoDuration === 0 || totalMs === 0 || !onTrimAdded) {
-			return;
-		}
-
-		const defaultDuration = Math.min(defaultRegionDurationMs, totalMs);
-		if (defaultDuration <= 0) {
-			return;
-		}
-
-		const startPos = Math.max(0, Math.min(currentTimeMs, totalMs));
-		const sorted = [...trimRegions].sort((a, b) => a.startMs - b.startMs);
-		const nextRegion = sorted.find((region) => region.startMs > startPos);
-		const gapToNext = nextRegion ? nextRegion.startMs - startPos : totalMs - startPos;
-
-		const isOverlapping = sorted.some(
-			(region) => startPos >= region.startMs && startPos < region.endMs,
-		);
-		if (isOverlapping || gapToNext <= 0) {
-			toast.error(t("errors.cannotPlaceTrim"), {
-				description: t("errors.trimExistsAtLocation"),
-			});
-			return;
-		}
-
-		const actualDuration = Math.min(defaultRegionDurationMs, gapToNext);
-		onTrimAdded({ start: startPos, end: startPos + actualDuration });
-	}, [videoDuration, totalMs, currentTimeMs, trimRegions, onTrimAdded, defaultRegionDurationMs, t]);
+		// Trim is retained only for loading legacy projects. New edits use media clips.
+		void onTrimAdded;
+	}, [onTrimAdded]);
 
 	const handleAddSpeed = useCallback(() => {
 		if (!videoDuration || videoDuration === 0 || totalMs === 0 || !onSpeedAdded) {
@@ -1241,6 +1586,59 @@ export default function TimelineEditor({
 			if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
 				return;
 			}
+			if (e.key === "Escape" && toolMode === "cut") {
+				e.preventDefault();
+				setToolMode("select");
+				return;
+			}
+			const primaryModifier = isMac ? e.metaKey : e.ctrlKey;
+			if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "c") {
+				e.preventDefault();
+				setToolMode("cut");
+				return;
+			}
+			if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "v") {
+				e.preventDefault();
+				setToolMode("select");
+				return;
+			}
+			if (primaryModifier && e.key.toLowerCase() === "b" && onCutItem) {
+				const selectedIds = [...selectedItemIds];
+				if (selectedIds.length > 0) {
+					e.preventDefault();
+					if (onCutItems) onCutItems(selectedIds, currentTimeMs);
+					else onCutItem(selectedIds[0], currentTimeMs);
+				}
+				return;
+			}
+			const selectedTimelineIds = [...selectedItemIds];
+			const selectedTimelineId = selectedTimelineIds[0];
+			if (primaryModifier && e.key.toLowerCase() === "c" && selectedTimelineId) {
+				e.preventDefault();
+				if (onCopyItems) onCopyItems(selectedTimelineIds);
+				else onCopyItem?.(selectedTimelineId);
+				return;
+			}
+			if (primaryModifier && e.key.toLowerCase() === "v" && onPasteItems) {
+				e.preventDefault();
+				onPasteItems(currentTimeMs);
+				return;
+			}
+			if (primaryModifier && e.key.toLowerCase() === "d" && selectedTimelineId) {
+				e.preventDefault();
+				if (onDuplicateItems) onDuplicateItems(selectedTimelineIds);
+				else onDuplicateItem?.(selectedTimelineId);
+				return;
+			}
+			if ((e.key === "Delete" || e.key === "Backspace") && e.shiftKey && onRippleDeleteItem) {
+				const selectedIds = [...selectedItemIds];
+				if (selectedIds.length > 0) {
+					e.preventDefault();
+					if (onDeleteItems) onDeleteItems(selectedIds, true);
+					else onRippleDeleteItem(selectedIds[0]);
+				}
+				return;
+			}
 
 			if (matchesShortcut(e, keyShortcuts.addKeyframe, isMac)) {
 				addKeyframe();
@@ -1288,10 +1686,16 @@ export default function TimelineEditor({
 				e.key === "Backspace" ||
 				matchesShortcut(e, keyShortcuts.deleteSelected, isMac)
 			) {
-				if (selectedKeyframeId) {
+				if (selectedItemIds.size > 0 && onDeleteItems) {
+					e.preventDefault();
+					onDeleteItems([...selectedItemIds], false);
+					setSelectedItemIds(new Set());
+				} else if (selectedKeyframeId) {
 					deleteSelectedKeyframe();
 				} else if (selectedZoomId) {
 					deleteSelectedZoom();
+				} else if (selectedVideoTrackId) {
+					deleteSelectedVideoTrack();
 				} else if (selectedTrimId) {
 					deleteSelectedTrim();
 				} else if (selectedAnnotationId) {
@@ -1300,6 +1704,8 @@ export default function TimelineEditor({
 					deleteSelectedBlur();
 				} else if (selectedSpeedId) {
 					deleteSelectedSpeed();
+				} else if (selectedAudioTrackId) {
+					deleteSelectedAudioTrack();
 				}
 			}
 		};
@@ -1314,6 +1720,8 @@ export default function TimelineEditor({
 		handleAddSpeed,
 		deleteSelectedKeyframe,
 		deleteSelectedZoom,
+		deleteSelectedVideoTrack,
+		selectedVideoTrackId,
 		deleteSelectedTrim,
 		deleteSelectedAnnotation,
 		deleteSelectedBlur,
@@ -1324,11 +1732,25 @@ export default function TimelineEditor({
 		selectedAnnotationId,
 		selectedBlurId,
 		selectedSpeedId,
+		selectedAudioTrackId,
+		deleteSelectedAudioTrack,
 		annotationRegions,
 		currentTime,
 		onSelectAnnotation,
+		onCutItem,
+		onRippleDeleteItem,
+		onCopyItem,
+		onPasteItems,
+		onDuplicateItem,
+		onCutItems,
+		onDeleteItems,
+		onCopyItems,
+		onDuplicateItems,
+		selectedItemIds,
+		currentTimeMs,
 		keyShortcuts,
 		isMac,
+		toolMode,
 	]);
 
 	const clampedRange = useMemo<Range>(() => {
@@ -1354,6 +1776,14 @@ export default function TimelineEditor({
 			variant: "zoom",
 		}));
 
+		const videos: TimelineRenderItem[] = videoTrackClips.map((clip, index) => ({
+			id: clip.id,
+			rowId: VIDEO_ROW_ID,
+			span: { start: clip.startMs, end: clip.endMs },
+			label: `Screen video ${index + 1}`,
+			variant: "video",
+		}));
+
 		const trims: TimelineRenderItem[] = trimRegions.map((region, index) => ({
 			id: region.id,
 			rowId: TRIM_ROW_ID,
@@ -1362,26 +1792,28 @@ export default function TimelineEditor({
 			variant: "trim",
 		}));
 
-		const annotations: TimelineRenderItem[] = annotationRegions.map((region) => {
-			let label: string;
+		const annotations: TimelineRenderItem[] = annotationRegions
+			.filter((region) => region.annotationSource !== "auto-caption")
+			.map((region) => {
+				let label: string;
 
-			if (region.type === "text") {
-				const preview = region.content.trim() || t("labels.emptyText");
-				label = preview.length > 20 ? `${preview.substring(0, 20)}...` : preview;
-			} else if (region.type === "image") {
-				label = t("labels.imageItem");
-			} else {
-				label = t("labels.annotationItem");
-			}
+				if (region.type === "text") {
+					const preview = region.content.trim() || t("labels.emptyText");
+					label = preview.length > 20 ? `${preview.substring(0, 20)}...` : preview;
+				} else if (region.type === "image") {
+					label = t("labels.imageItem");
+				} else {
+					label = t("labels.annotationItem");
+				}
 
-			return {
-				id: region.id,
-				rowId: ANNOTATION_ROW_ID,
-				span: { start: region.startMs, end: region.endMs },
-				label,
-				variant: "annotation",
-			};
-		});
+				return {
+					id: region.id,
+					rowId: ANNOTATION_ROW_ID,
+					span: { start: region.startMs, end: region.endMs },
+					label,
+					variant: "annotation",
+				};
+			});
 
 		const blurs: TimelineRenderItem[] = blurRegions.map((region, index) => ({
 			id: region.id,
@@ -1400,8 +1832,122 @@ export default function TimelineEditor({
 			variant: "speed",
 		}));
 
-		return [...zooms, ...trims, ...annotations, ...blurs, ...speeds];
-	}, [zoomRegions, trimRegions, annotationRegions, blurRegions, speedRegions, t]);
+		const audioTracks: TimelineRenderItem[] = groupAudioTrackClips(audioTrackClips).map((group) => {
+			const roles = new Set(group.clips.map((clip) => clip.role));
+			return {
+				id: group.id,
+				rowId: AUDIO_ROW_ID,
+				span: {
+					start: group.startMs,
+					end: group.endMs,
+				},
+				label: roles.has("voiceover") ? "AI Voice-over" : "Audio",
+				variant: "mixed-audio",
+			};
+		});
+
+		return [...videos, ...zooms, ...trims, ...annotations, ...blurs, ...speeds, ...audioTracks];
+	}, [
+		videoTrackClips,
+		zoomRegions,
+		trimRegions,
+		annotationRegions,
+		blurRegions,
+		speedRegions,
+		audioTrackClips,
+		t,
+	]);
+
+	const voiceoverAudioUrl = useMemo(() => {
+		const clip = audioTrackClips.find((candidate) => isFileBackedAudioClip(candidate));
+		return clip?.sourcePath ? toFileUrl(clip.sourcePath) : undefined;
+	}, [audioTrackClips]);
+	const autoCaptionRegions = useMemo(
+		() => annotationRegions.filter((region) => region.annotationSource === "auto-caption"),
+		[annotationRegions],
+	);
+
+	const clearItemSelection = useCallback(() => {
+		setSelectedItemIds(new Set());
+		selectionAnchorIdRef.current = null;
+		onSelectVideoTrack?.(null);
+		onSelectZoom(null);
+		onSelectTrim?.(null);
+		onSelectAnnotation?.(null);
+		onSelectBlur?.(null);
+		onSelectSpeed?.(null);
+		onSelectAudioTrack?.(null);
+	}, [
+		onSelectAnnotation,
+		onSelectAudioTrack,
+		onSelectBlur,
+		onSelectSpeed,
+		onSelectTrim,
+		onSelectVideoTrack,
+		onSelectZoom,
+	]);
+
+	const handleItemSelection = useCallback(
+		(item: TimelineRenderItem, event: React.PointerEvent<HTMLDivElement>) => {
+			setSelectedItemIds((current) => {
+				let next: Set<string>;
+				if (event.shiftKey && selectionAnchorIdRef.current) {
+					const anchorIndex = timelineItems.findIndex(
+						(candidate) => candidate.id === selectionAnchorIdRef.current,
+					);
+					const itemIndex = timelineItems.findIndex((candidate) => candidate.id === item.id);
+					if (anchorIndex >= 0 && itemIndex >= 0) {
+						const [start, end] =
+							anchorIndex <= itemIndex ? [anchorIndex, itemIndex] : [itemIndex, anchorIndex];
+						next = new Set(timelineItems.slice(start, end + 1).map((candidate) => candidate.id));
+					} else {
+						next = new Set([item.id]);
+					}
+				} else if (event.metaKey || event.ctrlKey) {
+					next = new Set(current);
+					if (next.has(item.id)) next.delete(item.id);
+					else next.add(item.id);
+					selectionAnchorIdRef.current = item.id;
+				} else if (current.size > 1 && current.has(item.id)) {
+					next = current;
+				} else {
+					next = new Set([item.id]);
+					selectionAnchorIdRef.current = item.id;
+				}
+				return next;
+			});
+
+			if (item.rowId === VIDEO_ROW_ID) onSelectVideoTrack?.(item.id);
+			else if (item.rowId === ZOOM_ROW_ID) onSelectZoom(item.id);
+			else if (item.rowId === TRIM_ROW_ID) onSelectTrim?.(item.id);
+			else if (item.rowId === ANNOTATION_ROW_ID) onSelectAnnotation?.(item.id);
+			else if (item.rowId === BLUR_ROW_ID) onSelectBlur?.(item.id);
+			else if (item.rowId === SPEED_ROW_ID) onSelectSpeed?.(item.id);
+			else if (item.rowId === AUDIO_ROW_ID) onSelectAudioTrack?.(item.id);
+		},
+		[
+			onSelectAnnotation,
+			onSelectAudioTrack,
+			onSelectBlur,
+			onSelectSpeed,
+			onSelectTrim,
+			onSelectVideoTrack,
+			onSelectZoom,
+			timelineItems,
+		],
+	);
+	const handleBoxSelection = useCallback((ids: string[]) => {
+		setSelectedItemIds(new Set(ids));
+		selectionAnchorIdRef.current = ids[ids.length - 1] ?? null;
+	}, []);
+
+	useEffect(() => {
+		const validIds = new Set(timelineItems.map((item) => item.id));
+		setSelectedItemIds((current) => {
+			const next = new Set([...current].filter((id) => validIds.has(id)));
+			return next.size === current.size ? current : next;
+		});
+	}, [timelineItems]);
 
 	// Spans that participate in overlap resolution (clampToNeighbours). Annotation
 	// and blur are excluded since they may overlap and shouldn't constrain a drag.
@@ -1427,8 +1973,33 @@ export default function TimelineEditor({
 
 	const handleItemSpanChange = useCallback(
 		(id: string, span: Span) => {
-			if (zoomRegions.some((r) => r.id === id)) {
+			const active = timelineItems.find((item) => item.id === id);
+			if (
+				active &&
+				selectedItemIds.size > 1 &&
+				selectedItemIds.has(id) &&
+				onBatchItemSpanChange &&
+				Math.round(span.end - span.start) === Math.round(active.span.end - active.span.start)
+			) {
+				const selected = timelineItems.filter((item) => selectedItemIds.has(item.id));
+				const requestedDelta = span.start - active.span.start;
+				const minStart = Math.min(...selected.map((item) => item.span.start));
+				const maxEnd = Math.max(...selected.map((item) => item.span.end));
+				const delta = Math.max(-minStart, Math.min(requestedDelta, totalMs - maxEnd));
+				onBatchItemSpanChange(
+					selected.map((item) => ({
+						id: item.id,
+						span: { start: item.span.start + delta, end: item.span.end + delta },
+					})),
+				);
+				return;
+			}
+			if (isAudioMixItemId(id)) {
+				onAudioTrackSpanChange?.(id, span);
+			} else if (zoomRegions.some((r) => r.id === id)) {
 				onZoomSpanChange(id, span);
+			} else if (videoTrackClips.some((clip) => clip.id === id)) {
+				onVideoTrackSpanChange?.(id, span);
 			} else if (trimRegions.some((r) => r.id === id)) {
 				onTrimSpanChange?.(id, span);
 			} else if (speedRegions.some((r) => r.id === id)) {
@@ -1437,10 +2008,14 @@ export default function TimelineEditor({
 				onAnnotationSpanChange?.(id, span);
 			} else if (blurRegions.some((r) => r.id === id)) {
 				onBlurSpanChange?.(id, span);
+			} else if (audioTrackClips.some((clip) => clip.id === id)) {
+				onAudioTrackSpanChange?.(id, span);
 			}
 		},
 		[
 			zoomRegions,
+			videoTrackClips,
+			onVideoTrackSpanChange,
 			trimRegions,
 			speedRegions,
 			annotationRegions,
@@ -1450,6 +2025,12 @@ export default function TimelineEditor({
 			onSpeedSpanChange,
 			onAnnotationSpanChange,
 			onBlurSpanChange,
+			audioTrackClips,
+			onAudioTrackSpanChange,
+			onBatchItemSpanChange,
+			selectedItemIds,
+			timelineItems,
+			totalMs,
 		],
 	);
 
@@ -1478,6 +2059,32 @@ export default function TimelineEditor({
 			<div className="flex items-center gap-2 px-3 py-1.5 border-b border-white/[0.06] bg-[#08090b]/95">
 				<div className="flex items-center gap-0.5 rounded-xl border border-white/[0.06] bg-white/[0.025] p-0.5">
 					<Button
+						onClick={() => setToolMode("select")}
+						variant="ghost"
+						size="icon"
+						aria-pressed={toolMode === "select"}
+						className={cn(
+							"h-7 w-7 rounded-lg",
+							toolMode === "select" ? "bg-white/10 text-white" : "text-slate-400",
+						)}
+						title="Select tool (V)"
+					>
+						<MousePointer2 className="w-4 h-4" />
+					</Button>
+					<Button
+						onClick={() => setToolMode("cut")}
+						variant="ghost"
+						size="icon"
+						aria-pressed={toolMode === "cut"}
+						className={cn(
+							"h-7 w-7 rounded-lg",
+							toolMode === "cut" ? "bg-red-500/15 text-red-400" : "text-slate-400",
+						)}
+						title="Cut tool (C)"
+					>
+						<Scissors className="w-4 h-4" />
+					</Button>
+					<Button
 						onClick={handleAddZoom}
 						variant="ghost"
 						size="icon"
@@ -1488,6 +2095,7 @@ export default function TimelineEditor({
 					</Button>
 					<Button
 						onClick={() => onToggleAutoZoom?.(!autoZoomEnabled)}
+						disabled={autoZoomAnalysisProgress !== null}
 						variant="ghost"
 						size="icon"
 						aria-pressed={autoZoomEnabled}
@@ -1497,8 +2105,17 @@ export default function TimelineEditor({
 						)}
 						title={autoZoomEnabled ? t("buttons.autoZoomOn") : t("buttons.autoZoomOff")}
 					>
-						<WandSparkles className="w-4 h-4" />
+						{autoZoomAnalysisProgress ? (
+							<LoaderCircle className="w-4 h-4 animate-spin" />
+						) : (
+							<WandSparkles className="w-4 h-4" />
+						)}
 					</Button>
+					{autoZoomAnalysisProgress && (
+						<span className="whitespace-nowrap text-[11px] text-[#34B27B]">
+							正在分析关键操作 {autoZoomAnalysisProgress.completed}/{autoZoomAnalysisProgress.total}
+						</span>
+					)}
 					<Button
 						onClick={() => onToggleAutoFocusAll?.(!autoFocusAll)}
 						variant="ghost"
@@ -1511,15 +2128,6 @@ export default function TimelineEditor({
 						title={autoFocusAll ? t("buttons.autoFocusAllOn") : t("buttons.autoFocusAllOff")}
 					>
 						<ScanEye className="w-4 h-4" />
-					</Button>
-					<Button
-						onClick={handleAddTrim}
-						variant="ghost"
-						size="icon"
-						className="h-7 w-7 rounded-lg text-slate-400 hover:text-[#ef4444] hover:bg-[#ef4444]/10 transition-all"
-						title={t("buttons.addTrim")}
-					>
-						<Scissors className="w-4 h-4" />
 					</Button>
 					<Button
 						onClick={handleAddAnnotation}
@@ -1600,20 +2208,6 @@ export default function TimelineEditor({
 					</DropdownMenu>
 				</div>
 				<div className="flex-1" />
-				<div className="hidden md:flex items-center gap-3 text-[10px] text-slate-500 font-medium">
-					<span className="flex items-center gap-1.5">
-						<kbd className="px-1.5 py-0.5 bg-white/5 border border-white/10 rounded text-[#34B27B] font-sans">
-							{scrollLabels.pan}
-						</kbd>
-						<span>{t("labels.pan")}</span>
-					</span>
-					<span className="flex items-center gap-1.5">
-						<kbd className="px-1.5 py-0.5 bg-white/5 border border-white/10 rounded text-[#34B27B] font-sans">
-							{scrollLabels.zoom}
-						</kbd>
-						<span>{t("labels.zoom")}</span>
-					</span>
-				</div>
 			</div>
 			<div
 				ref={timelineContainerRef}
@@ -1648,18 +2242,27 @@ export default function TimelineEditor({
 						onSeek={onSeek}
 						onRangeChange={setRange}
 						onSelectZoom={onSelectZoom}
+						onSelectVideoTrack={onSelectVideoTrack}
 						onSelectTrim={onSelectTrim}
 						onSelectAnnotation={onSelectAnnotation}
 						onSelectBlur={onSelectBlur}
 						onSelectSpeed={onSelectSpeed}
-						selectedZoomId={selectedZoomId}
-						selectedTrimId={selectedTrimId}
-						selectedAnnotationId={selectedAnnotationId}
-						selectedBlurId={selectedBlurId}
-						selectedSpeedId={selectedSpeedId}
+						onSelectAudioTrack={onSelectAudioTrack}
+						selectedItemIds={selectedItemIds}
+						onSelectItem={handleItemSelection}
+						onBoxSelect={handleBoxSelection}
+						onClearSelection={clearItemSelection}
 						keyframes={keyframes}
 						videoUrl={videoUrl}
+						voiceoverAudioUrl={voiceoverAudioUrl}
 						showTrimWaveform={showTrimWaveform}
+						autoCaptionRegions={autoCaptionRegions}
+						selectedAnnotationId={selectedAnnotationId}
+						captionTrackLabel={captionsLabel}
+						toolMode={toolMode}
+						onCutItem={onCutItem}
+						videoFrameRate={videoFrameRate}
+						lockedTrackKinds={lockedTrackKinds}
 					/>
 				</TimelineWrapper>
 			</div>

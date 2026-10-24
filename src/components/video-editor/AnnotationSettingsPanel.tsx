@@ -49,6 +49,8 @@ interface AnnotationSettingsPanelProps {
 	onFigureDataChange?: (figureData: FigureData) => void;
 	onDuplicate?: () => void;
 	onDelete: () => void;
+	captionTrackMode?: boolean;
+	captionTrackLabel?: string;
 }
 
 const FONT_FAMILIES: Array<
@@ -91,6 +93,8 @@ export function AnnotationSettingsPanel({
 	onFigureDataChange,
 	onDuplicate,
 	onDelete,
+	captionTrackMode = false,
+	captionTrackLabel,
 }: AnnotationSettingsPanelProps) {
 	const t = useScopedT("settings");
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -173,16 +177,25 @@ export function AnnotationSettingsPanel({
 					<span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
 						{t("annotation.active")}
 					</span>
-					<div className="mt-1 text-xl font-semibold text-slate-100">{t("annotation.title")}</div>
+					<div className="mt-1 text-xl font-semibold text-slate-100">
+						{captionTrackMode
+							? `${captionTrackLabel ?? t("annotation.typeText")} · ${t("annotation.fontStyle")}`
+							: t("annotation.title")}
+					</div>
 				</div>
 
 				{/* Type Selector */}
 				<Tabs
-					value={annotation.type}
+					value={captionTrackMode ? "text" : annotation.type}
 					onValueChange={(value) => onTypeChange(value as AnnotationType)}
 					className="mb-4"
 				>
-					<TabsList className="mb-4 bg-white/[0.035] border border-white/[0.06] p-0.5 w-full grid grid-cols-3 h-9 rounded-xl">
+					<TabsList
+						className={cn(
+							"mb-4 bg-white/[0.035] border border-white/[0.06] p-0.5 w-full grid grid-cols-3 h-9 rounded-xl",
+							captionTrackMode && "hidden",
+						)}
+					>
 						<TabsTrigger
 							value="text"
 							className="data-[state=active]:bg-[#34B27B] data-[state=active]:text-white text-slate-400 rounded-lg transition-all gap-1.5 text-[11px]"
@@ -216,18 +229,20 @@ export function AnnotationSettingsPanel({
 
 					{/* Text Content */}
 					<TabsContent value="text" className="mt-0 space-y-4">
-						<div>
-							<label className="text-xs font-medium text-slate-200 mb-2 block">
-								{t("annotation.textContent")}
-							</label>
-							<textarea
-								value={annotation.textContent || annotation.content}
-								onChange={(e) => onContentChange(e.target.value)}
-								placeholder={t("annotation.textPlaceholder")}
-								rows={5}
-								className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-slate-200 text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#34B27B] focus:border-transparent resize-none"
-							/>
-						</div>
+						{!captionTrackMode && (
+							<div>
+								<label className="text-xs font-medium text-slate-200 mb-2 block">
+									{t("annotation.textContent")}
+								</label>
+								<textarea
+									value={annotation.textContent || annotation.content}
+									onChange={(e) => onContentChange(e.target.value)}
+									placeholder={t("annotation.textPlaceholder")}
+									rows={5}
+									className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-slate-200 text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#34B27B] focus:border-transparent resize-none"
+								/>
+							</div>
+						)}
 
 						{/* Styling Controls */}
 						<div className="space-y-4">
@@ -643,28 +658,30 @@ export function AnnotationSettingsPanel({
 					</TabsContent>
 				</Tabs>
 
-				<div className="mt-4 grid grid-cols-2 gap-2">
-					<Button
-						onClick={() => onDuplicate?.()}
-						variant="outline"
-						size="sm"
-						disabled={!onDuplicate}
-						className="w-full gap-2 bg-white/5 text-slate-200 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all"
-					>
-						<Copy className="w-4 h-4" />
-						Duplicate
-					</Button>
+				{!captionTrackMode && (
+					<div className="mt-4 grid grid-cols-2 gap-2">
+						<Button
+							onClick={() => onDuplicate?.()}
+							variant="outline"
+							size="sm"
+							disabled={!onDuplicate}
+							className="w-full gap-2 bg-white/5 text-slate-200 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all"
+						>
+							<Copy className="w-4 h-4" />
+							Duplicate
+						</Button>
 
-					<Button
-						onClick={onDelete}
-						variant="destructive"
-						size="sm"
-						className="w-full gap-2 bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 hover:border-red-500/30 transition-all"
-					>
-						<Trash2 className="w-4 h-4" />
-						{t("annotation.deleteAnnotation")}
-					</Button>
-				</div>
+						<Button
+							onClick={onDelete}
+							variant="destructive"
+							size="sm"
+							className="w-full gap-2 bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 hover:border-red-500/30 transition-all"
+						>
+							<Trash2 className="w-4 h-4" />
+							{t("annotation.deleteAnnotation")}
+						</Button>
+					</div>
+				)}
 			</div>
 		</div>
 	);

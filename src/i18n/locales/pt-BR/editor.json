@@ -40,12 +40,14 @@
 		"cameraDenied": "Acesso à câmera negado. A gravação continuará sem webcam.",
 		"cameraDisconnected": "Webcam desconectada.",
 		"cameraNotFound": "Câmera não encontrada.",
-		"permissionDenied": "Permissão de gravação negada. Por favor, permita a gravação de tela."
+		"permissionDenied": "Permissão de gravação negada. Por favor, permita a gravação de tela.",
+		"accessibilityAllowAndRetry": "Permita o acesso de Acessibilidade para o OpenScreen e pressione gravar novamente para iniciar a contagem regressiva."
 	},
 	"autoCaptions": {
 		"button": "Legendas automáticas",
 		"dialogTitle": "Legendas automáticas",
-		"dialogDescription": "Escolha aproximadamente quantas palavras cada legenda mostra de cada vez. O tempo é distribuído entre as palavras da frase.",
+		"dialogDescription": "As legendas são divididas automaticamente em frases naturais e legíveis.",
+		"adaptiveHint": "Não é preciso definir palavras. Pausas, pontuação, ritmo da fala e largura do texto são equilibrados automaticamente.",
 		"minWords": "Mínimo de palavras por legenda",
 		"maxWords": "Máximo de palavras por legenda",
 		"wordsCount": "{{count}} palavras",
@@ -60,5 +62,78 @@
 		"noAudio": "Este vídeo não tem áudio utilizável para transcrição.",
 		"failed": "Não foi possível gerar as legendas.",
 		"truncated": "Apenas os primeiros {{minutes}} minutos foram transcritos."
+	},
+	"voiceover": {
+		"dialogTitle": "Narração com IA",
+		"dialogDescription": "Lê a transcrição com uma voz limpa e padrão e substitui a trilha de áudio original.",
+		"tabCaptions": "Legendas",
+		"tabVoiceover": "Narração IA",
+		"voice": "Voz",
+		"style": "Estilo",
+		"styles": {
+			"sleek": "Sofisticado e premium",
+			"energetic": "Enérgico",
+			"broadcast": "Locução",
+			"conversational": "Conversacional"
+		},
+		"polish": "Polir a transcrição (remover vícios de linguagem)",
+		"replaceOriginal": "Substituir o áudio original (silenciá-lo)",
+		"hint": "As legendas na linha do tempo são o roteiro: edite o texto delas primeiro para mudar o que é falado. Sem legendas, a fala é transcrita automaticamente.",
+		"generate": "Gerar narração",
+		"regenerate": "Gerar narração novamente",
+		"remove": "Remover narração",
+		"transcribing": "Transcrevendo a fala…",
+		"synthesizing": "Sintetizando voz {{done}}/{{total}}…",
+		"saving": "Salvando a trilha de áudio…",
+		"done": "Narração adicionada à linha do tempo.",
+		"compressedNote": "{{count}} falas foram levemente aceleradas para caber no tempo.",
+		"removed": "Narração removida e áudio original restaurado.",
+		"failed": "Não foi possível gerar a narração.",
+		"busy": "A narração já está sendo gerada.",
+		"quality": "Qualidade",
+		"qualityHd": "Alta fidelidade",
+		"qualityStandard": "Padrão (mais barato)",
+		"targetLanguage": "Idioma de destino",
+		"sourceLanguage": "Idioma original (sem tradução)",
+		"syncCaptions": "Traduzir também as legendas da linha do tempo",
+		"translating": "Traduzindo o roteiro…",
+		"hdCostHint": "A alta fidelidade usa os modelos gpt-audio (≈US$ 0,1–0,2 por minuto de áudio)."
+	},
+	"loadingEditor": "Carregando o editor...",
+	"emptyState": {
+		"title": "Nenhum projeto aberto",
+		"description": "Importe um vídeo para começar a editar ou carregue um projeto OpenScreen existente.",
+		"importVideoButton": "Importar arquivo de vídeo…",
+		"loadProjectButton": "Carregar projeto…",
+		"supportedFormats": "Formatos suportados: MP4, MOV, WebM, MKV, AVI, M4V, WMV",
+		"dragDropHint": "ou arraste e solte um arquivo de projeto .openscreen aqui",
+		"dropOverlay": "Solte o arquivo de projeto para abrir",
+		"dropErrors": {
+			"unsupportedFormatTitle": "Formato não suportado",
+			"unsupportedFormatMessage": "Somente arquivos de projeto .openscreen podem ser soltos aqui. Para importar um vídeo, use o botão \"Importar arquivo de vídeo…\" nesta tela.",
+			"couldNotOpenTitle": "Não foi possível abrir o arquivo",
+			"couldNotOpenMessage": "O arquivo de projeto não pôde ser aberto. O vídeo referenciado pode ter sido movido ou excluído."
+		}
+	},
+	"background": {
+		"withBackground": "Background",
+		"noBackground": "No background",
+		"noBackgroundDescription": "Show only the recorded page edge-to-edge. Export will match the preview."
+	},
+	"mediaLibrary": {
+		"title": "Media Library",
+		"subtitle": "Your recordings and saved projects",
+		"back": "Back to editor",
+		"refresh": "Refresh",
+		"openFromComputer": "Open from computer",
+		"loading": "Loading library…",
+		"loadError": "Could not load the media library.",
+		"retry": "Try again",
+		"emptyTitle": "No recordings yet",
+		"emptyDescription": "Start a recording or open a video from your computer.",
+		"newRecording": "New recording",
+		"project": "Project",
+		"recording": "Recording",
+		"edited": "Project saved"
 	}
 }

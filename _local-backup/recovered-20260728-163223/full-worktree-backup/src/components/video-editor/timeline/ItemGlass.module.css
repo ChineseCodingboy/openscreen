@@ -1,0 +1,269 @@
+.glassGreen {
+	position: relative;
+	border-radius: 10px;
+	-corner-smoothing: antialiased;
+	background: linear-gradient(180deg, rgba(52, 178, 123, 0.28), rgba(31, 115, 82, 0.2));
+	border: 1px solid rgba(77, 221, 157, 0.36);
+	box-shadow:
+		0 1px 0 rgba(255, 255, 255, 0.1) inset,
+		0 8px 22px rgba(0, 0, 0, 0.22);
+	margin: 3px 0;
+	transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glassGreen:hover {
+	background: linear-gradient(180deg, rgba(52, 178, 123, 0.36), rgba(31, 115, 82, 0.25));
+	border-color: rgba(77, 221, 157, 0.62);
+}
+
+.glassGreen.selected {
+	background: linear-gradient(180deg, rgba(52, 178, 123, 0.48), rgba(31, 115, 82, 0.32));
+	border-color: #34b27b;
+	box-shadow:
+		0 0 0 1px rgba(52, 178, 123, 0.95),
+		0 0 0 4px rgba(52, 178, 123, 0.14),
+		0 12px 26px rgba(0, 0, 0, 0.28);
+	z-index: 10;
+}
+
+.glassRed {
+	position: relative;
+	border-radius: 10px;
+	-corner-smoothing: antialiased;
+	background: rgba(239, 68, 68, 0.15);
+	border: 1px solid rgba(239, 68, 68, 0.3);
+	box-shadow: 0 2px 12px 0 rgba(239, 68, 68, 0.1) inset;
+	margin: 3px 0;
+	backdrop-filter: blur(4px);
+	-webkit-backdrop-filter: blur(4px);
+	transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glassRed:hover {
+	background: rgba(239, 68, 68, 0.25);
+	border-color: rgba(239, 68, 68, 0.5);
+	box-shadow: 0 4px 20px 0 rgba(239, 68, 68, 0.2) inset;
+}
+
+.glassRed.selected {
+	background: rgba(239, 68, 68, 0.35);
+	border-color: #ef4444;
+	box-shadow:
+		0 0 0 1px #ef4444,
+		0 4px 20px 0 rgba(239, 68, 68, 0.3) inset;
+	z-index: 10;
+}
+
+.glassYellow {
+	position: relative;
+	border-radius: 10px;
+	-corner-smoothing: antialiased;
+	background: rgba(180, 160, 70, 0.15);
+	border: 1px solid rgba(180, 160, 70, 0.3);
+	box-shadow: 0 2px 12px 0 rgba(180, 160, 70, 0.1) inset;
+	margin: 3px 0;
+	backdrop-filter: blur(4px);
+	-webkit-backdrop-filter: blur(4px);
+	transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glassYellow:hover {
+	background: rgba(180, 160, 70, 0.25);
+	border-color: rgba(180, 160, 70, 0.5);
+	box-shadow: 0 4px 20px 0 rgba(180, 160, 70, 0.2) inset;
+}
+
+.glassYellow.selected {
+	background: rgba(180, 160, 70, 0.35);
+	border-color: #b4a046;
+	box-shadow:
+		0 0 0 1px #b4a046,
+		0 4px 20px 0 rgba(180, 160, 70, 0.3) inset;
+	z-index: 10;
+}
+
+.glassAmber {
+	position: relative;
+	border-radius: 10px;
+	-corner-smoothing: antialiased;
+	background: rgba(245, 158, 11, 0.15);
+	border: 1px solid rgba(245, 158, 11, 0.3);
+	box-shadow: 0 2px 12px 0 rgba(245, 158, 11, 0.1) inset;
+	margin: 3px 0;
+	backdrop-filter: blur(4px);
+	-webkit-backdrop-filter: blur(4px);
+	transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glassBlue {
+	position: relative;
+	border-radius: 10px;
+	-corner-smoothing: antialiased;
+	background: linear-gradient(180deg, rgba(59, 130, 246, 0.3), rgba(19, 62, 133, 0.22));
+	border: 1px solid rgba(103, 175, 255, 0.36);
+	box-shadow:
+		0 1px 0 rgba(255, 255, 255, 0.1) inset,
+		0 8px 22px rgba(0, 0, 0, 0.22);
+	margin: 3px 0;
+	transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glassBlue:hover {
+	background: linear-gradient(180deg, rgba(59, 130, 246, 0.38), rgba(19, 62, 133, 0.28));
+	border-color: rgba(103, 175, 255, 0.6);
+}
+
+.glassBlue.selected {
+	background: linear-gradient(180deg, rgba(59, 130, 246, 0.48), rgba(19, 62, 133, 0.34));
+	border-color: #3b82f6;
+	box-shadow:
+		0 0 0 1px rgba(59, 130, 246, 0.95),
+		0 0 0 4px rgba(59, 130, 246, 0.14),
+		0 12px 26px rgba(0, 0, 0, 0.28);
+	z-index: 10;
+}
+
+.glassAudio {
+	position: relative;
+	border-radius: 10px;
+	-corner-smoothing: antialiased;
+	background: linear-gradient(180deg, rgba(20, 184, 166, 0.3), rgba(15, 91, 89, 0.22));
+	border: 1px solid rgba(94, 234, 212, 0.34);
+	box-shadow:
+		0 1px 0 rgba(255, 255, 255, 0.1) inset,
+		0 8px 22px rgba(0, 0, 0, 0.22);
+	margin: 3px 0;
+	transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glassAudio:hover {
+	background: linear-gradient(180deg, rgba(20, 184, 166, 0.38), rgba(15, 91, 89, 0.28));
+	border-color: rgba(94, 234, 212, 0.58);
+}
+
+.glassAudio.selected {
+	background: linear-gradient(180deg, rgba(20, 184, 166, 0.48), rgba(15, 91, 89, 0.34));
+	border-color: #14b8a6;
+	box-shadow:
+		0 0 0 1px rgba(20, 184, 166, 0.95),
+		0 0 0 4px rgba(20, 184, 166, 0.14),
+		0 12px 26px rgba(0, 0, 0, 0.28);
+	z-index: 10;
+}
+
+.glassSlate {
+	position: relative;
+	border-radius: 10px;
+	-corner-smoothing: antialiased;
+	background: linear-gradient(180deg, rgba(100, 116, 139, 0.34), rgba(30, 41, 59, 0.28));
+	border: 1px solid rgba(203, 213, 225, 0.26);
+	box-shadow:
+		0 1px 0 rgba(255, 255, 255, 0.1) inset,
+		0 8px 22px rgba(0, 0, 0, 0.22);
+	margin: 3px 0;
+	transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glassSlate:hover {
+	background: linear-gradient(180deg, rgba(100, 116, 139, 0.42), rgba(30, 41, 59, 0.34));
+	border-color: rgba(203, 213, 225, 0.45);
+}
+
+.glassSlate.selected {
+	background: linear-gradient(180deg, rgba(100, 116, 139, 0.5), rgba(30, 41, 59, 0.4));
+	border-color: #94a3b8;
+	box-shadow:
+		0 0 0 1px rgba(148, 163, 184, 0.95),
+		0 0 0 4px rgba(148, 163, 184, 0.14),
+		0 12px 26px rgba(0, 0, 0, 0.28);
+	z-index: 10;
+}
+
+.glassPurple {
+	position: relative;
+	border-radius: 10px;
+	-corner-smoothing: antialiased;
+	background: linear-gradient(180deg, rgba(143, 77, 218, 0.32), rgba(82, 38, 143, 0.24));
+	border: 1px solid rgba(207, 158, 255, 0.36);
+	box-shadow:
+		0 1px 0 rgba(255, 255, 255, 0.1) inset,
+		0 8px 22px rgba(0, 0, 0, 0.22);
+	margin: 3px 0;
+	transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glassPurple:hover {
+	background: linear-gradient(180deg, rgba(143, 77, 218, 0.4), rgba(82, 38, 143, 0.3));
+	border-color: rgba(207, 158, 255, 0.6);
+}
+
+.glassPurple.selected {
+	background: linear-gradient(180deg, rgba(143, 77, 218, 0.5), rgba(82, 38, 143, 0.36));
+	border-color: #a855f7;
+	box-shadow:
+		0 0 0 1px rgba(168, 85, 247, 0.95),
+		0 0 0 4px rgba(168, 85, 247, 0.14),
+		0 12px 26px rgba(0, 0, 0, 0.28);
+	z-index: 10;
+}
+
+.glassAmber:hover {
+	background: rgba(245, 158, 11, 0.25);
+	border-color: rgba(245, 158, 11, 0.5);
+	box-shadow: 0 4px 20px 0 rgba(245, 158, 11, 0.2) inset;
+}
+
+.glassAmber.selected {
+	background: rgba(245, 158, 11, 0.35);
+	border-color: #f59e0b;
+	box-shadow:
+		0 0 0 1px #f59e0b,
+		0 4px 20px 0 rgba(245, 158, 11, 0.3) inset;
+	z-index: 10;
+}
+
+.zoomEndCap {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 6px;
+	pointer-events: none;
+	z-index: 2;
+	opacity: 0.45;
+	transition:
+		opacity 0.2s,
+		width 0.2s;
+}
+
+.glassGreen:hover .zoomEndCap,
+.glassGreen.selected .zoomEndCap,
+.glassRed:hover .zoomEndCap,
+.glassRed.selected .zoomEndCap,
+.glassYellow:hover .zoomEndCap,
+.glassYellow.selected .zoomEndCap,
+.glassAmber:hover .zoomEndCap,
+.glassAmber.selected .zoomEndCap,
+.glassBlue:hover .zoomEndCap,
+.glassBlue.selected .zoomEndCap,
+.glassAudio:hover .zoomEndCap,
+.glassAudio.selected .zoomEndCap,
+.glassSlate:hover .zoomEndCap,
+.glassSlate.selected .zoomEndCap,
+.glassPurple:hover .zoomEndCap,
+.glassPurple.selected .zoomEndCap {
+	opacity: 1;
+}
+
+.zoomEndCap.left {
+	left: 0;
+	cursor: ew-resize;
+	border-top-left-radius: 9px;
+	border-bottom-left-radius: 9px;
+}
+
+.zoomEndCap.right {
+	right: 0;
+	cursor: ew-resize;
+	border-top-right-radius: 9px;
+	border-bottom-right-radius: 9px;
+}

@@ -47,7 +47,8 @@
 	"autoCaptions": {
 		"button": "Auto captions",
 		"dialogTitle": "Auto captions",
-		"dialogDescription": "Choose roughly how many words each caption shows at once. Timing is spread across the words in that phrase.",
+		"dialogDescription": "Captions are automatically divided into natural, readable phrases.",
+		"adaptiveHint": "No word-count setup needed. Pauses, punctuation, speech pace, and on-screen text width are balanced automatically.",
 		"minWords": "Minimum words per caption",
 		"maxWords": "Maximum words per caption",
 		"wordsCount": "{{count}} words",
@@ -63,6 +64,42 @@
 		"failed": "Could not generate captions.",
 		"truncated": "Only the first {{minutes}} minutes were transcribed."
 	},
+	"voiceover": {
+		"dialogTitle": "AI voice-over",
+		"dialogDescription": "Reads your transcript in a clean, standard voice and replaces the original audio track.",
+		"tabCaptions": "Captions",
+		"tabVoiceover": "AI voice-over",
+		"voice": "Voice",
+		"style": "Style",
+		"styles": {
+			"sleek": "Sleek & premium",
+			"energetic": "Energetic",
+			"broadcast": "Broadcast",
+			"conversational": "Conversational"
+		},
+		"polish": "Polish transcript (remove filler words)",
+		"replaceOriginal": "Replace original audio (mute it)",
+		"hint": "The captions on the timeline are the script — edit their text first to change what is spoken. Without captions, speech is transcribed automatically.",
+		"generate": "Generate voice-over",
+		"regenerate": "Regenerate voice-over",
+		"remove": "Remove voice-over",
+		"transcribing": "Transcribing speech…",
+		"synthesizing": "Synthesizing speech {{done}}/{{total}}…",
+		"saving": "Saving audio track…",
+		"done": "Voice-over added to the timeline.",
+		"compressedNote": "{{count}} lines were sped up slightly to fit their timing.",
+		"removed": "Voice-over removed and original audio restored.",
+		"failed": "Could not generate the voice-over.",
+		"busy": "Voice-over generation is already in progress.",
+		"quality": "Quality",
+		"qualityHd": "High fidelity",
+		"qualityStandard": "Standard (cheaper)",
+		"targetLanguage": "Target language",
+		"sourceLanguage": "Original language",
+		"syncCaptions": "Also translate the timeline captions",
+		"translating": "Translating script…",
+		"hdCostHint": "High fidelity uses the gpt-audio models (≈$0.1–0.2 per minute of audio)."
+	},
 	"emptyState": {
 		"title": "No project open",
 		"description": "Import a video to start editing, or load an existing OpenScreen project.",
@@ -77,5 +114,26 @@
 			"couldNotOpenTitle": "Could Not Open File",
 			"couldNotOpenMessage": "The project file could not be opened. The video it references may have been moved or deleted."
 		}
+	},
+	"background": {
+		"withBackground": "Background",
+		"noBackground": "No background",
+		"noBackgroundDescription": "Show only the recorded page edge-to-edge. Export will match the preview."
+	},
+	"mediaLibrary": {
+		"title": "Media Library",
+		"subtitle": "Your recordings and saved projects",
+		"back": "Back to editor",
+		"refresh": "Refresh",
+		"openFromComputer": "Open from computer",
+		"loading": "Loading library…",
+		"loadError": "Could not load the media library.",
+		"retry": "Try again",
+		"emptyTitle": "No recordings yet",
+		"emptyDescription": "Start a recording or open a video from your computer.",
+		"newRecording": "New recording",
+		"project": "Project",
+		"recording": "Recording",
+		"edited": "Project saved"
 	}
 }

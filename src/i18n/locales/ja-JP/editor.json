@@ -47,7 +47,8 @@
 	"autoCaptions": {
 		"button": "自動キャプション",
 		"dialogTitle": "自動キャプション",
-		"dialogDescription": "各キャプションに一度に表示する語数の目安を選びます。タイミングはそのフレーズ内の語に分配されます。",
+		"dialogDescription": "字幕は自然で読みやすいフレーズに自動分割されます。",
+		"adaptiveHint": "語数の設定は不要です。間、句読点、話速、画面上の文字幅を自動的に調整します。",
 		"minWords": "キャプションあたりの最小語数",
 		"maxWords": "キャプションあたりの最大語数",
 		"wordsCount": "{{count}} 語",
@@ -63,6 +64,42 @@
 		"failed": "キャプションを生成できませんでした。",
 		"truncated": "最初の {{minutes}} 分のみが書き起こされました。"
 	},
+	"voiceover": {
+		"dialogTitle": "AI ナレーション",
+		"dialogDescription": "文字起こしをクリアで標準的な声で読み上げ、元の音声トラックを置き換えます。",
+		"tabCaptions": "字幕",
+		"tabVoiceover": "AI ナレーション",
+		"voice": "ボイス",
+		"style": "スタイル",
+		"styles": {
+			"sleek": "クールで上質",
+			"energetic": "エネルギッシュ",
+			"broadcast": "アナウンサー風",
+			"conversational": "自然な会話調"
+		},
+		"polish": "AI で文章を整える(フィラーを除去)",
+		"replaceOriginal": "元の音声を置き換える(ミュート)",
+		"hint": "タイムライン上の字幕がそのまま台本になります。読み上げ内容を変えるには先に字幕テキストを編集してください。字幕がない場合は自動で文字起こしします。",
+		"generate": "ナレーションを生成",
+		"regenerate": "ナレーションを再生成",
+		"remove": "ナレーションを削除",
+		"transcribing": "音声を文字起こし中…",
+		"synthesizing": "音声を合成中 {{done}}/{{total}}…",
+		"saving": "音声トラックを保存中…",
+		"done": "ナレーションをタイムラインに追加しました。",
+		"compressedNote": "{{count}} 件のセリフはタイミングに合わせてわずかに速められました。",
+		"removed": "ナレーションを削除し、元の音声を復元しました。",
+		"failed": "ナレーションを生成できませんでした。",
+		"busy": "ナレーションを生成中です。",
+		"quality": "音質",
+		"qualityHd": "高忠実度",
+		"qualityStandard": "標準(低コスト)",
+		"targetLanguage": "対象言語",
+		"sourceLanguage": "元の言語(翻訳なし)",
+		"syncCaptions": "タイムラインの字幕も翻訳する",
+		"translating": "台本を翻訳中…",
+		"hdCostHint": "高忠実度は gpt-audio 系モデルを使用します(音声約 $0.1〜0.2/分)。"
+	},
 	"emptyState": {
 		"title": "プロジェクトが開かれていません",
 		"description": "動画をインポートして編集を開始するか、既存の OpenScreen プロジェクトを読み込んでください。",
@@ -77,5 +114,26 @@
 			"couldNotOpenTitle": "ファイルを開けませんでした",
 			"couldNotOpenMessage": "プロジェクトファイルを開けませんでした。参照している動画が移動または削除された可能性があります。"
 		}
+	},
+	"background": {
+		"withBackground": "Background",
+		"noBackground": "No background",
+		"noBackgroundDescription": "Show only the recorded page edge-to-edge. Export will match the preview."
+	},
+	"mediaLibrary": {
+		"title": "Media Library",
+		"subtitle": "Your recordings and saved projects",
+		"back": "Back to editor",
+		"refresh": "Refresh",
+		"openFromComputer": "Open from computer",
+		"loading": "Loading library…",
+		"loadError": "Could not load the media library.",
+		"retry": "Try again",
+		"emptyTitle": "No recordings yet",
+		"emptyDescription": "Start a recording or open a video from your computer.",
+		"newRecording": "New recording",
+		"project": "Project",
+		"recording": "Recording",
+		"edited": "Project saved"
 	}
 }

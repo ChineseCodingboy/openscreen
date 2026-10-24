@@ -1,3 +1,5 @@
+import { ActiveMediaClock, type MediaClockSnapshot } from "@/lib/webcamSync";
+
 const RECORDER_TIMESLICE_MS = 1000;
 
 export type RecorderHandle = {
@@ -13,6 +15,8 @@ export type RecorderHandle = {
 	 * so a stream that fails to open reports as not-streamed and uses its memory fallback.
 	 */
 	isStreaming: () => boolean;
+	/** Active media time derived from the recorder's actual lifecycle events. */
+	getMediaClock: () => MediaClockSnapshot;
 	/**
 	 * Close the disk stream (if any) and delete its partial file. Called when a recording
 	 * is discarded or fails before save, so cancelled runs don't leak. No-op in-memory.
@@ -34,6 +38,7 @@ export function createRecorderHandle(
 	fileName?: string,
 ): RecorderHandle {
 	const recorder = new MediaRecorder(stream, options);
+	const mediaClock = new ActiveMediaClock();
 	const mimeType = options.mimeType || "video/webm";
 	const api = window.electronAPI;
 
@@ -95,7 +100,19 @@ export function createRecorderHandle(
 		},
 	);
 
+	const eventWallTimeMs = (event: Event) => {
+		const timestamp = event.timeStamp;
+		if (Number.isFinite(timestamp) && timestamp > 1_000_000_000_000) return timestamp;
+		const timeOrigin = globalThis.performance?.timeOrigin;
+		return Number.isFinite(timestamp) && Number.isFinite(timeOrigin)
+			? timeOrigin + timestamp
+			: Date.now();
+	};
+
 	const recordedBlobPromise = new Promise<Blob>((resolve, reject) => {
+		recorder.onstart = (event) => mediaClock.start(eventWallTimeMs(event));
+		recorder.onpause = (event) => mediaClock.pause(eventWallTimeMs(event));
+		recorder.onresume = (event) => mediaClock.resume(eventWallTimeMs(event));
 		recorder.ondataavailable = (event: BlobEvent) => {
 			if (!event.data || event.data.size === 0) {
 				return;
@@ -112,7 +129,8 @@ export function createRecorderHandle(
 			reject(new Error("Recording failed"));
 		};
 
-		recorder.onstop = () => {
+		recorder.onstop = (event) => {
+			mediaClock.stop(eventWallTimeMs(event));
 			resolve(finalizeBlob());
 		};
 	});
@@ -143,6 +161,7 @@ export function createRecorderHandle(
 		recorder,
 		recordedBlobPromise,
 		isStreaming: () => mode === "streaming" && !appendError,
+		getMediaClock: () => mediaClock.snapshot(),
 		discard,
 	};
 }

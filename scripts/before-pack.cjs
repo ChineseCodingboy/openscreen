@@ -7,6 +7,11 @@ const { execFileSync } = require("node:child_process");
 const path = require("node:path");
 
 exports.default = async function beforePack() {
+	if (process.env.OPENSCREEN_SKIP_CAPTION_ASSETS === "1") {
+		console.warn("Skipping caption asset download for this offline package build.");
+		return;
+	}
+
 	execFileSync("node", [path.join(__dirname, "fetch-caption-model.mjs")], {
 		stdio: "inherit",
 		cwd: path.join(__dirname, ".."),

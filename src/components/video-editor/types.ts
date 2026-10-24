@@ -1,4 +1,5 @@
 import type { WebcamLayoutPreset } from "@/lib/compositeLayout";
+import type { AudioStreamSource, AudioTrackRole, RecordedAudioTrack } from "@/lib/recordingSession";
 
 export type ZoomDepth = 1 | 2 | 3 | 4 | 5 | 6;
 export type ZoomFocusMode = "manual" | "auto";
@@ -67,13 +68,42 @@ export function rotation3DPerspective(width: number, height: number): number {
  * "manual" so it survives. Undefined is treated as "manual" for back-compat.
  */
 export type ZoomRegionSource = "auto" | "manual";
+export type ZoomMotionProfile = "professional-v2";
+export type ZoomFocusSpace = "stage" | "source";
+
+export interface ZoomTargetBounds {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
 
 export interface ZoomRegion {
 	id: string;
 	startMs: number;
 	endMs: number;
+	/**
+	 * Optional explicit zoom-in duration. Auto-generated regions use this so the
+	 * camera starts and finishes its zoom during the semantic cursor move. Older
+	 * and manually-created regions omit it and keep the legacy lead-in timing.
+	 */
+	zoomInDurationMs?: number;
+	/** Explicit analytic zoom-out duration used by professional auto camera moves. */
+	zoomOutDurationMs?: number;
+	/** Opt-in only: missing values preserve the legacy renderer for old/manual regions. */
+	motionProfile?: ZoomMotionProfile;
+	/** Original interaction time in source-media time. */
+	triggerTimeMs?: number;
+	/** Confidence of the local interaction/target analysis, in the 0-1 range. */
+	confidence?: number;
+	/** Target rectangle in normalized, uncropped source-video coordinates. */
+	targetBounds?: ZoomTargetBounds;
+	/** Coordinate system used by focus. Legacy regions default to stage coordinates. */
+	focusSpace?: ZoomFocusSpace;
 	depth: ZoomDepth;
 	focus: ZoomFocus;
+	/** Optional drag destination, in the same coordinate space as focus. */
+	focusEnd?: ZoomFocus;
 	focusMode?: ZoomFocusMode;
 	rotationPreset?: Rotation3DPreset;
 	/** Custom scale overriding the preset depth (1.0-5.0, two decimal precision). */
@@ -204,6 +234,7 @@ export const DEFAULT_CURSOR_SIZE = 3.0;
 export const DEFAULT_CURSOR_SMOOTHING = 0.67;
 export const DEFAULT_CURSOR_MOTION_BLUR = 0.35;
 export const DEFAULT_CURSOR_CLICK_BOUNCE = 2.5;
+export const DEFAULT_SMART_CURSOR_ENABLED = true;
 // false lets the cursor overflow into the background; true clips it to the canvas bounds.
 export const DEFAULT_CURSOR_CLIP_TO_BOUNDS = false;
 export const DEFAULT_ZOOM_MOTION_BLUR = 0.35;
@@ -380,6 +411,209 @@ export interface SpeedRegion {
 	startMs: number;
 	endMs: number;
 	speed: PlaybackSpeed;
+}
+
+/**
+ * An editable slice of one of the audio streams written by ScreenCaptureKit.
+ * `startMs`/`endMs` are its position on the editor timeline; `sourceStartMs`
+ * is the position read from the original audio stream.
+ */
+export interface AudioTrackClip {
+	id: string;
+	role: AudioTrackRole;
+	/** 0-based order among physical audio tracks; resolved to a demuxer stream index at runtime. */
+	trackOrdinal: number;
+	startMs: number;
+	endMs: number;
+	sourceStartMs: number;
+	muted: boolean;
+	gain: number;
+	linkGroupId?: string;
+	/**
+	 * Absolute path of a standalone audio file backing this clip (e.g. a generated
+	 * voice-over WAV). File-backed clips never resolve against the recording's own
+	 * audio streams; their `trackOrdinal` is a reserved virtual ordinal.
+	 */
+	sourcePath?: string;
+}
+
+/** Virtual ordinal for the generated voice-over track; never collides with physical tracks. */
+export const VOICEOVER_TRACK_ORDINAL = 1000;
+
+export const VOICEOVER_CLIP_ID = "audio-voiceover";
+
+export function isFileBackedAudioClip(clip: Pick<AudioTrackClip, "sourcePath">): boolean {
+	return typeof clip.sourcePath === "string" && clip.sourcePath.length > 0;
+}
+
+/** One synthesized speech span of the generated voice-over, in timeline milliseconds. */
+export interface VoiceoverUtterance {
+	startMs: number;
+	endMs: number;
+	text: string;
+}
+
+/** Metadata for the generated voice-over track (the audio itself lives in `audioPath`). */
+export interface VoiceoverState {
+	audioPath: string;
+	voice: string;
+	style: string;
+	polish: boolean;
+	/** "hd" (gpt-audio chat models) or "standard" (gpt-4o-mini-tts). */
+	quality: string;
+	/** Target language the script was translated into; null reads the original language. */
+	language: string | null;
+	utterances: VoiceoverUtterance[];
+	generatedAtMs: number;
+}
+
+/** An editable section of the recorded screen video. */
+export interface VideoTrackClip {
+	id: string;
+	startMs: number;
+	endMs: number;
+	sourceStartMs: number;
+	linkGroupId?: string;
+}
+
+export type TimelineTrackKind = "video" | "audio" | "zoom" | "annotation" | "blur" | "speed";
+
+export interface TimelineTrack {
+	id: string;
+	kind: TimelineTrackKind;
+	order: number;
+	locked: boolean;
+	muted: boolean;
+	hidden: boolean;
+}
+
+export const DEFAULT_TIMELINE_TRACKS: TimelineTrack[] = [
+	{ id: "track-video", kind: "video", order: 0, locked: false, muted: false, hidden: false },
+	{ id: "track-zoom", kind: "zoom", order: 1, locked: false, muted: false, hidden: false },
+	{
+		id: "track-annotation",
+		kind: "annotation",
+		order: 2,
+		locked: false,
+		muted: false,
+		hidden: false,
+	},
+	{ id: "track-blur", kind: "blur", order: 3, locked: false, muted: false, hidden: false },
+	{ id: "track-speed", kind: "speed", order: 4, locked: false, muted: false, hidden: false },
+	{ id: "track-audio", kind: "audio", order: 5, locked: false, muted: false, hidden: false },
+];
+
+export interface TimelineClipBase {
+	id: string;
+	trackId: string;
+	kind: TimelineTrackKind;
+	timelineStartMs: number;
+	durationMs: number;
+	sourceInMs: number;
+	sourceDurationMs: number;
+	linkGroupId?: string;
+}
+
+export type TimelineClip = TimelineClipBase & {
+	payload:
+		| { type: "video" }
+		| { type: "audio"; tracks: Array<{ trackOrdinal: number; gain: number; muted: boolean }> }
+		| { type: "zoom"; region: ZoomRegion }
+		| { type: "annotation" | "blur"; region: AnnotationRegion }
+		| { type: "speed"; region: SpeedRegion };
+};
+
+export function createDefaultVideoTrackClip(durationMs: number): VideoTrackClip {
+	return {
+		id: "video-screen",
+		startMs: 0,
+		endMs: Math.max(1, Math.round(durationMs)),
+		sourceStartMs: 0,
+		linkGroupId: "media-screen-1",
+	};
+}
+
+export function createDefaultAudioTrackClips(
+	durationMs: number,
+	audioTracks?: RecordedAudioTrack[] | AudioStreamSource[],
+): AudioTrackClip[] {
+	// Without stream metadata (legacy manifests, imported videos, non-native
+	// recordings) the audio track layout is unknown; leave the audio timeline
+	// empty so playback falls back to the media's embedded audio.
+	if (!audioTracks?.length) {
+		return [];
+	}
+	const endMs = Math.max(1, Math.round(durationMs));
+	const normalizedTracks: RecordedAudioTrack[] =
+		typeof audioTracks[0] === "string"
+			? audioTracks.length === 2
+				? [{ ordinal: 0, role: "mixed" }]
+				: (audioTracks as AudioStreamSource[]).map((role, ordinal) => ({ ordinal, role }))
+			: (audioTracks as RecordedAudioTrack[]);
+	return normalizedTracks.map(({ ordinal, role }) => ({
+		id: `audio-${role}-${ordinal}`,
+		role,
+		trackOrdinal: ordinal,
+		startMs: 0,
+		endMs,
+		sourceStartMs: 0,
+		muted: false,
+		gain: 1,
+		linkGroupId: "media-screen-1",
+	}));
+}
+
+/**
+ * Aligns persisted clips with the physical track layout discovered from the media file.
+ * File-backed clips (voice-over) are not tied to the media's streams and pass through as-is.
+ */
+export function reconcileAudioTrackClips(
+	clips: AudioTrackClip[],
+	tracks: RecordedAudioTrack[],
+): AudioTrackClip[] {
+	const fileBackedClips = clips.filter((clip) => isFileBackedAudioClip(clip));
+	const physicalClips = clips.filter((clip) => !isFileBackedAudioClip(clip));
+	return [...reconcilePhysicalAudioTrackClips(physicalClips, tracks), ...fileBackedClips];
+}
+
+function reconcilePhysicalAudioTrackClips(
+	clips: AudioTrackClip[],
+	tracks: RecordedAudioTrack[],
+): AudioTrackClip[] {
+	if (!tracks.length) return [];
+	if (tracks.length === 1) {
+		const spanGroups = new Map<string, AudioTrackClip[]>();
+		for (const clip of clips) {
+			const key = `${clip.startMs}:${clip.endMs}:${clip.sourceStartMs}:${clip.linkGroupId ?? ""}`;
+			const group = spanGroups.get(key);
+			if (group) group.push(clip);
+			else spanGroups.set(key, [clip]);
+		}
+
+		return [...spanGroups.values()]
+			.map((group) => {
+				const first = group[0];
+				const collapsedDuplicateControls = group.length > 1;
+				return {
+					...first,
+					role: tracks[0].role,
+					trackOrdinal: 0,
+					// Legacy system/microphone controls can point at one physical mixed track.
+					// Collapse only matching timeline spans, preserving cuts while avoiding a
+					// doubled signal. Independent gains cannot be recovered, so use unity.
+					muted: collapsedDuplicateControls ? group.every((clip) => clip.muted) : first.muted,
+					gain: collapsedDuplicateControls ? 1 : first.gain,
+				};
+			})
+			.sort((left, right) => left.startMs - right.startMs);
+	}
+
+	return clips
+		.filter((clip) => tracks.some((track) => track.ordinal === clip.trackOrdinal))
+		.map((clip) => ({
+			...clip,
+			role: tracks.find((track) => track.ordinal === clip.trackOrdinal)?.role ?? clip.role,
+		}));
 }
 
 export const SPEED_OPTIONS: Array<{ speed: PlaybackSpeed; label: string }> = [

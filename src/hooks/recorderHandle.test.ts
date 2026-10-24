@@ -8,18 +8,41 @@ const decode = (buffer: ArrayBuffer) => new TextDecoder().decode(new Uint8Array(
 
 /** Minimal MediaRecorder stand-in the tests can drive directly. */
 class FakeMediaRecorder {
+	onstart: ((event: Event) => void) | null = null;
+	onpause: ((event: Event) => void) | null = null;
+	onresume: ((event: Event) => void) | null = null;
 	ondataavailable: ((event: BlobEvent) => void) | null = null;
-	onstop: (() => void) | null = null;
+	onstop: ((event: Event) => void) | null = null;
 	onerror: (() => void) | null = null;
-	state: "inactive" | "recording" = "inactive";
+	state: "inactive" | "recording" | "paused" = "inactive";
+	private wallTimeMs = 1_700_000_000_000;
+
+	private event(): Event {
+		return { timeStamp: this.wallTimeMs } as Event;
+	}
 
 	start(): void {
 		this.state = "recording";
+		this.onstart?.(this.event());
+	}
+
+	pause(): void {
+		this.state = "paused";
+		this.onpause?.(this.event());
+	}
+
+	resume(): void {
+		this.state = "recording";
+		this.onresume?.(this.event());
 	}
 
 	stop(): void {
 		this.state = "inactive";
-		this.onstop?.();
+		this.onstop?.(this.event());
+	}
+
+	advance(ms: number): void {
+		this.wallTimeMs += ms;
 	}
 
 	emit(data: Blob): void {
@@ -203,6 +226,41 @@ describe("createRecorderHandle", () => {
 		expect(openRecordingStream).not.toHaveBeenCalled();
 		expect(handle.isStreaming()).toBe(false);
 		expect(blob.size).toBe(2);
+	});
+
+	it("records active media time from start, pause, resume, and stop events", async () => {
+		stubElectronAPI({});
+		const handle = createRecorderHandle({} as MediaStream, { mimeType: "video/webm" });
+		const fake = driver(handle);
+
+		fake.advance(400);
+		fake.pause();
+		fake.advance(1000);
+		fake.resume();
+		fake.advance(600);
+		fake.stop();
+		await handle.recordedBlobPromise;
+
+		expect(handle.getMediaClock()).toEqual({
+			startedAtMs: 1_700_000_000_000,
+			stoppedAtMs: 1_700_000_002_000,
+			activeDurationMs: 1000,
+			active: false,
+			segments: [
+				{
+					wallStartMs: 1_700_000_000_000,
+					wallEndMs: 1_700_000_000_400,
+					mediaStartMs: 0,
+					mediaEndMs: 400,
+				},
+				{
+					wallStartMs: 1_700_000_001_400,
+					wallEndMs: 1_700_000_002_000,
+					mediaStartMs: 400,
+					mediaEndMs: 1000,
+				},
+			],
+		});
 	});
 
 	it("buffers in memory when appendRecordingChunk is unavailable (version skew)", async () => {

@@ -3,7 +3,7 @@ import { normalizeBlurColor, normalizeBlurType } from "@/lib/blurEffects";
 import { normalizeCursorThemeId } from "@/lib/cursor/cursorThemes";
 import type { ExportFormat, ExportQuality, GifFrameRate, GifSizePreset } from "@/lib/exporter";
 import type { ProjectMedia } from "@/lib/recordingSession";
-import { normalizeProjectMedia } from "@/lib/recordingSession";
+import { isAudioTrackRole, normalizeProjectMedia } from "@/lib/recordingSession";
 import { DEFAULT_WALLPAPER, WALLPAPER_PATHS } from "@/lib/wallpaper";
 import { ASPECT_RATIOS, type AspectRatio, isPortraitAspectRatio } from "@/utils/aspectRatioUtils";
 import {
@@ -15,6 +15,7 @@ import {
 } from "./editorDefaults";
 import {
 	type AnnotationRegion,
+	type AudioTrackClip,
 	type CropRegion,
 	clampPlaybackSpeed,
 	DEFAULT_ANNOTATION_POSITION,
@@ -26,6 +27,7 @@ import {
 	DEFAULT_BLUR_INTENSITY,
 	DEFAULT_FIGURE_DATA,
 	DEFAULT_PLAYBACK_SPEED,
+	DEFAULT_TIMELINE_TRACKS,
 	DEFAULT_WEBCAM_MIRRORED,
 	DEFAULT_WEBCAM_REACTIVE_ZOOM,
 	DEFAULT_ZOOM_DEPTH,
@@ -33,11 +35,16 @@ import {
 	MAX_BLUR_BLOCK_SIZE,
 	MAX_BLUR_INTENSITY,
 	MAX_PLAYBACK_SPEED,
+	MAX_ZOOM_SCALE,
 	MIN_BLUR_BLOCK_SIZE,
 	MIN_BLUR_INTENSITY,
 	MIN_PLAYBACK_SPEED,
+	MIN_ZOOM_SCALE,
 	type SpeedRegion,
+	type TimelineTrack,
 	type TrimRegion,
+	type VideoTrackClip,
+	type VoiceoverState,
 	type WebcamLayoutPreset,
 	type WebcamMaskShape,
 	type WebcamPosition,
@@ -62,10 +69,11 @@ function normalizeWallpaperValue(value: string): string {
 	return CANONICAL_WALLPAPERS.has(canonical) ? canonical : DEFAULT_WALLPAPER;
 }
 
-export const PROJECT_VERSION = 2;
+export const PROJECT_VERSION = 7;
 
 export interface ProjectEditorState {
 	wallpaper: string;
+	backgroundMode: "wallpaper" | "none";
 	shadowIntensity: number;
 	showBlur: boolean;
 	showTrimWaveform: boolean;
@@ -76,9 +84,15 @@ export interface ProjectEditorState {
 	zoomRegions: ZoomRegion[];
 	autoZoomEnabled: boolean;
 	autoFocusAll: boolean;
+	smartCursorEnabled: boolean;
 	trimRegions: TrimRegion[];
 	speedRegions: SpeedRegion[];
 	annotationRegions: AnnotationRegion[];
+	audioTrackClips: AudioTrackClip[];
+	videoTrackClips: VideoTrackClip[];
+	timelineTracks: TimelineTrack[];
+	/** v7: generated AI voice-over metadata; the audio file lives at `audioPath`. */
+	voiceover?: VoiceoverState | null;
 	aspectRatio: AspectRatio;
 	webcamLayoutPreset: WebcamLayoutPreset;
 	webcamMaskShape: WebcamMaskShape;
@@ -259,13 +273,61 @@ export function normalizeProjectEditor(editor: Partial<ProjectEditorState>): Pro
 						id: region.id,
 						startMs,
 						endMs,
+						...(isFiniteNumber(region.zoomInDurationMs)
+							? {
+									zoomInDurationMs: Math.max(
+										1,
+										Math.min(endMs - startMs, Math.round(region.zoomInDurationMs)),
+									),
+								}
+							: {}),
+						...(isFiniteNumber(region.zoomOutDurationMs)
+							? { zoomOutDurationMs: Math.max(1, Math.round(region.zoomOutDurationMs)) }
+							: {}),
+						...(region.motionProfile === "professional-v2"
+							? { motionProfile: region.motionProfile }
+							: {}),
+						...(isFiniteNumber(region.triggerTimeMs)
+							? { triggerTimeMs: Math.max(0, Math.round(region.triggerTimeMs)) }
+							: {}),
+						...(isFiniteNumber(region.confidence)
+							? { confidence: clamp(region.confidence, 0, 1) }
+							: {}),
+						...(region.focusSpace === "source" ? { focusSpace: "source" as const } : {}),
+						...(region.targetBounds &&
+						isFiniteNumber(region.targetBounds.x) &&
+						isFiniteNumber(region.targetBounds.y) &&
+						isFiniteNumber(region.targetBounds.width) &&
+						isFiniteNumber(region.targetBounds.height)
+							? {
+									targetBounds: {
+										x: clamp(region.targetBounds.x, 0, 1),
+										y: clamp(region.targetBounds.y, 0, 1),
+										width: clamp(region.targetBounds.width, 0.001, 1),
+										height: clamp(region.targetBounds.height, 0.001, 1),
+									},
+								}
+							: {}),
 						depth: [1, 2, 3, 4, 5, 6].includes(region.depth) ? region.depth : DEFAULT_ZOOM_DEPTH,
 						focus: {
 							cx: clamp(isFiniteNumber(region.focus?.cx) ? region.focus.cx : 0.5, 0, 1),
 							cy: clamp(isFiniteNumber(region.focus?.cy) ? region.focus.cy : 0.5, 0, 1),
 						},
+						...(region.focusEnd &&
+						isFiniteNumber(region.focusEnd.cx) &&
+						isFiniteNumber(region.focusEnd.cy)
+							? {
+									focusEnd: {
+										cx: clamp(region.focusEnd.cx, 0, 1),
+										cy: clamp(region.focusEnd.cy, 0, 1),
+									},
+								}
+							: {}),
 						focusMode: region.focusMode === "auto" ? "auto" : "manual",
 						source: region.source === "auto" ? "auto" : "manual",
+						...(isFiniteNumber(region.customScale)
+							? { customScale: clamp(region.customScale, MIN_ZOOM_SCALE, MAX_ZOOM_SCALE) }
+							: {}),
 						...(validPreset ? { rotationPreset: validPreset } : {}),
 					};
 				})
@@ -427,6 +489,95 @@ export function normalizeProjectEditor(editor: Partial<ProjectEditorState>): Pro
 				})
 		: [];
 
+	const normalizedAudioTrackClips: AudioTrackClip[] = Array.isArray(editor.audioTrackClips)
+		? editor.audioTrackClips
+				.filter((clip) => {
+					const raw = clip as unknown as Record<string, unknown>;
+					return Boolean(
+						clip &&
+							typeof clip.id === "string" &&
+							(isAudioTrackRole(raw.role) ||
+								raw.source === "system" ||
+								raw.source === "microphone") &&
+							(isFiniteNumber(raw.trackOrdinal) || isFiniteNumber(raw.streamIndex)),
+					);
+				})
+				.map((clip) => {
+					const raw = clip as unknown as Record<string, unknown>;
+					const rawStart = isFiniteNumber(clip.startMs) ? Math.round(clip.startMs) : 0;
+					const rawEnd = isFiniteNumber(clip.endMs) ? Math.round(clip.endMs) : rawStart + 1;
+					const startMs = Math.max(0, Math.min(rawStart, rawEnd));
+					const trackOrdinal = isFiniteNumber(raw.trackOrdinal)
+						? Math.max(0, Math.round(raw.trackOrdinal))
+						: Math.max(0, Math.round(Number(raw.streamIndex)) - 1);
+					const role = isAudioTrackRole(raw.role)
+						? raw.role
+						: raw.source === "system" || raw.source === "microphone"
+							? raw.source
+							: "unknown";
+					return {
+						id: clip.id,
+						role,
+						trackOrdinal,
+						startMs,
+						endMs: Math.max(startMs + 1, rawEnd),
+						sourceStartMs: Math.max(
+							0,
+							isFiniteNumber(clip.sourceStartMs) ? Math.round(clip.sourceStartMs) : startMs,
+						),
+						muted: typeof clip.muted === "boolean" ? clip.muted : false,
+						gain: isFiniteNumber(clip.gain) ? clamp(clip.gain, 0, 4) : 1,
+						linkGroupId: typeof clip.linkGroupId === "string" ? clip.linkGroupId : "media-screen-1",
+						...(typeof raw.sourcePath === "string" && raw.sourcePath
+							? { sourcePath: raw.sourcePath }
+							: {}),
+					};
+				})
+		: [];
+
+	const normalizedVideoTrackClips: VideoTrackClip[] = Array.isArray(editor.videoTrackClips)
+		? editor.videoTrackClips
+				.filter((clip): clip is VideoTrackClip => Boolean(clip && typeof clip.id === "string"))
+				.map((clip) => {
+					const rawStart = isFiniteNumber(clip.startMs) ? Math.round(clip.startMs) : 0;
+					const rawEnd = isFiniteNumber(clip.endMs) ? Math.round(clip.endMs) : rawStart + 1;
+					const startMs = Math.max(0, Math.min(rawStart, rawEnd));
+					return {
+						id: clip.id,
+						startMs,
+						endMs: Math.max(startMs + 1, rawEnd),
+						sourceStartMs: Math.max(
+							0,
+							isFiniteNumber(clip.sourceStartMs) ? Math.round(clip.sourceStartMs) : startMs,
+						),
+						linkGroupId: typeof clip.linkGroupId === "string" ? clip.linkGroupId : "media-screen-1",
+					};
+				})
+		: [];
+
+	const suppliedTimelineTracks: TimelineTrack[] = Array.isArray(editor.timelineTracks)
+		? editor.timelineTracks
+				.filter((track): track is TimelineTrack =>
+					Boolean(
+						track &&
+							typeof track.id === "string" &&
+							["video", "audio", "zoom", "annotation", "blur", "speed"].includes(track.kind),
+					),
+				)
+				.map((track, index) => ({
+					id: track.id,
+					kind: track.kind,
+					order: isFiniteNumber(track.order) ? Math.max(0, Math.round(track.order)) : index,
+					locked: Boolean(track.locked),
+					muted: Boolean(track.muted),
+					hidden: Boolean(track.hidden),
+				}))
+		: [];
+	const normalizedTimelineTracks = DEFAULT_TIMELINE_TRACKS.map((defaultTrack) => {
+		const supplied = suppliedTimelineTracks.find((track) => track.kind === defaultTrack.kind);
+		return supplied ? { ...supplied } : { ...defaultTrack };
+	});
+
 	const rawCropX = isFiniteNumber(editor.cropRegion?.x)
 		? editor.cropRegion.x
 		: DEFAULT_EDITOR_LAYOUT_SETTINGS.cropRegion.x;
@@ -451,6 +602,7 @@ export function normalizeProjectEditor(editor: Partial<ProjectEditorState>): Pro
 			typeof editor.wallpaper === "string"
 				? normalizeWallpaperValue(editor.wallpaper)
 				: DEFAULT_EDITOR_LAYOUT_SETTINGS.wallpaper,
+		backgroundMode: editor.backgroundMode === "none" ? "none" : "wallpaper",
 		shadowIntensity:
 			typeof editor.shadowIntensity === "number"
 				? editor.shadowIntensity
@@ -488,9 +640,20 @@ export function normalizeProjectEditor(editor: Partial<ProjectEditorState>): Pro
 		// on-load auto-suggest pass is gated separately, so this won't add zooms.
 		autoZoomEnabled: typeof editor.autoZoomEnabled === "boolean" ? editor.autoZoomEnabled : true,
 		autoFocusAll: typeof editor.autoFocusAll === "boolean" ? editor.autoFocusAll : false,
+		// v5 and older projects did not persist this switch. Keep their appearance
+		// unchanged; fresh recordings start from INITIAL_EDITOR_STATE where it is on.
+		smartCursorEnabled:
+			typeof editor.smartCursorEnabled === "boolean" ? editor.smartCursorEnabled : false,
 		trimRegions: normalizedTrimRegions,
 		speedRegions: normalizedSpeedRegions,
 		annotationRegions: normalizedAnnotationRegions,
+		audioTrackClips: normalizedAudioTrackClips,
+		voiceover: normalizeVoiceoverState((editor as { voiceover?: unknown }).voiceover),
+		videoTrackClips: normalizedVideoTrackClips,
+		timelineTracks:
+			normalizedTimelineTracks.length > 0
+				? normalizedTimelineTracks
+				: DEFAULT_TIMELINE_TRACKS.map((track) => ({ ...track })),
 		aspectRatio: normalizedAspectRatio,
 		webcamLayoutPreset: normalizedWebcamLayoutPreset,
 		webcamMaskShape:
@@ -530,6 +693,42 @@ export function normalizeProjectEditor(editor: Partial<ProjectEditorState>): Pro
 			editor.gifSizePreset === "original"
 				? editor.gifSizePreset
 				: DEFAULT_GIF_SETTINGS.sizePreset,
+	};
+}
+
+function normalizeVoiceoverState(raw: unknown): VoiceoverState | null {
+	if (!raw || typeof raw !== "object") return null;
+	const candidate = raw as Partial<VoiceoverState>;
+	if (typeof candidate.audioPath !== "string" || !candidate.audioPath) return null;
+	const utterances = Array.isArray(candidate.utterances)
+		? candidate.utterances.flatMap((utterance) => {
+				if (
+					!utterance ||
+					!isFiniteNumber(utterance.startMs) ||
+					!isFiniteNumber(utterance.endMs) ||
+					typeof utterance.text !== "string"
+				) {
+					return [];
+				}
+				return [
+					{
+						startMs: Math.max(0, Math.round(utterance.startMs)),
+						endMs: Math.max(0, Math.round(utterance.endMs)),
+						text: utterance.text,
+					},
+				];
+			})
+		: [];
+	return {
+		audioPath: candidate.audioPath,
+		voice: typeof candidate.voice === "string" && candidate.voice ? candidate.voice : "ash",
+		style: typeof candidate.style === "string" && candidate.style ? candidate.style : "sleek",
+		polish: typeof candidate.polish === "boolean" ? candidate.polish : false,
+		quality: candidate.quality === "standard" ? "standard" : "hd",
+		language:
+			typeof candidate.language === "string" && candidate.language ? candidate.language : null,
+		utterances,
+		generatedAtMs: isFiniteNumber(candidate.generatedAtMs) ? candidate.generatedAtMs : 0,
 	};
 }
 

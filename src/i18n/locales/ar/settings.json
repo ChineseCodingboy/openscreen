@@ -8,7 +8,8 @@
 			"title": "وضع التركيز",
 			"manual": "يدوي",
 			"auto": "تلقائي",
-			"autoDescription": "الكاميرا تتبع موضع المؤشر المسجل"
+			"autoDescription": "الكاميرا تتبع موضع المؤشر المسجل",
+			"lockedDisclaimer": "يتحكم به مفتاح التركيز التلقائي العام في الخط الزمني. عطّله لضبط وضع التركيز لكل تكبير على حدة."
 		},
 		"customScale": "تكبير مخصص",
 		"position": {
@@ -68,7 +69,10 @@
 		"uploadCustom": "رفع صورة مخصصة",
 		"gradientLabel": "تدرج لوني {{index}}",
 		"colorWheel": "عجلة الألوان",
-		"colorPalette": "لوحة الألوان"
+		"colorPalette": "لوحة الألوان",
+		"withBackground": "مع خلفية",
+		"noBackground": "بلا خلفية",
+		"noBackgroundDescription": "يعرض التسجيل فقط من الحافة إلى الحافة، وسيطابق التصدير المعاينة."
 	},
 	"crop": {
 		"title": "اقتصاص",
@@ -92,7 +96,8 @@
 		"title": "دقة التصدير",
 		"low": "720p",
 		"medium": "1080p",
-		"high": "Source"
+		"high": "Original",
+		"source": "Source"
 	},
 	"gifSettings": {
 		"frameRate": "معدل إطارات GIF",
@@ -108,11 +113,6 @@
 		"videoButton": "تصدير الفيديو",
 		"gifButton": "تصدير GIF",
 		"chooseSaveLocation": "اختيار موقع الحفظ"
-	},
-	"support": {
-		"reportBug": "الإبلاغ عن خطأ",
-		"saveDiagnostics": "حفظ التشخيصات",
-		"starOnGithub": "إعطاء نجمة على GitHub"
 	},
 	"imageUpload": {
 		"invalidFileType": "نوع ملف غير صالح",
@@ -132,8 +132,6 @@
 		"textPlaceholder": "أدخل النص هنا...",
 		"fontStyle": "نمط الخط",
 		"selectStyle": "حدد النمط",
-		"textAnimation": "تحريك النص",
-		"selectAnimation": "حدد الحركة",
 		"size": "الحجم",
 		"customFonts": "خطوط مخصصة",
 		"textColor": "لون النص",
@@ -207,7 +205,10 @@
 		"smoothing": "التنعيم",
 		"motionBlur": "ضبابية الحركة",
 		"clickBounce": "ارتداد النقر",
-		"clipToBounds": "القص ضمن اللوحة"
+		"clipToBounds": "القص ضمن اللوحة",
+		"smartMotion": "الحركة الذكية",
+		"smartMotionDescription": "يحتفظ بنقاط التوقف والتفاعل المهمة ويستبدل الحركات العرضية بمسار مباشر وسلس.",
+		"clipToBoundsDescription": "يُبقي المؤشر داخل إطار الفيديو. عطّله للسماح للمؤشر بتجاوز الحواف - مفيد عند التكبير أو التحريك."
 	},
 	"language": {
 		"title": "اللغة"
@@ -215,5 +216,16 @@
 	"timeline": {
 		"title": "المخطط الزمني",
 		"waveform": "عرض الموجة الصوتية على مسار القطع"
+	},
+	"textAnimation": {
+		"title": "حركة النص",
+		"selectAnimation": "اختر الحركة",
+		"none": "بدون",
+		"fade": "تلاشٍ",
+		"rise": "صعود",
+		"pop": "قفزة",
+		"slideLeft": "انزلاق لليسار",
+		"typewriter": "آلة كاتبة",
+		"pulse": "نبض"
 	}
 }

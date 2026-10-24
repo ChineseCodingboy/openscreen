@@ -8,7 +8,8 @@
 			"title": "Modo de enfoque",
 			"manual": "Manual",
 			"auto": "Auto",
-			"autoDescription": "La cámara sigue la posición del cursor grabado"
+			"autoDescription": "La cámara sigue la posición del cursor grabado",
+			"lockedDisclaimer": "Controlado por el interruptor global de enfoque automático en la línea de tiempo. Desactívalo para definir el modo de enfoque por zoom."
 		},
 		"threeD": {
 			"title": "Rotación 3D",
@@ -68,7 +69,10 @@
 		"uploadCustom": "Subir personalizado",
 		"gradientLabel": "Degradado {{index}}",
 		"colorWheel": "Rueda de colores",
-		"colorPalette": "Paleta de colores"
+		"colorPalette": "Paleta de colores",
+		"withBackground": "Con fondo",
+		"noBackground": "Sin fondo",
+		"noBackgroundDescription": "Muestra solo la grabación de borde a borde. La exportación coincidirá con la vista previa."
 	},
 	"crop": {
 		"title": "Recortar",
@@ -92,7 +96,8 @@
 		"title": "Resolución de exportación",
 		"low": "720p",
 		"medium": "1080p",
-		"high": "Source"
+		"high": "Original",
+		"source": "Source"
 	},
 	"gifSettings": {
 		"frameRate": "Velocidad de cuadros del GIF",
@@ -108,11 +113,6 @@
 		"videoButton": "Exportar video",
 		"gifButton": "Exportar GIF",
 		"chooseSaveLocation": "Elegir ubicación de guardado"
-	},
-	"support": {
-		"reportBug": "Reportar error",
-		"saveDiagnostics": "Guardar diagnósticos",
-		"starOnGithub": "Dar estrella en GitHub"
 	},
 	"imageUpload": {
 		"invalidFileType": "Tipo de archivo no válido",
@@ -216,7 +216,10 @@
 		"smoothing": "Suavizado",
 		"motionBlur": "Desenfoque de movimiento",
 		"clickBounce": "Rebote al clic",
-		"clipToBounds": "Recortar al lienzo"
+		"clipToBounds": "Recortar al lienzo",
+		"smartMotion": "Movimiento inteligente",
+		"smartMotionDescription": "Conserva las paradas e interacciones importantes y reemplaza los desvíos accidentales por un recorrido directo y fluido.",
+		"clipToBoundsDescription": "Mantiene el cursor dentro del encuadre del vídeo. Desactívalo para que el cursor pueda salir de los bordes; útil al hacer zoom o desplazar."
 	},
 	"language": {
 		"title": "Idioma"

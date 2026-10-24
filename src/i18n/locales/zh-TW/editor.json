@@ -47,7 +47,8 @@
 	"autoCaptions": {
 		"button": "自動字幕",
 		"dialogTitle": "自動字幕",
-		"dialogDescription": "大致選擇每條字幕一次顯示多少字詞。時間會在該語句內的字詞之間分配。",
+		"dialogDescription": "字幕會自動拆分成自然、易讀的語句。",
+		"adaptiveHint": "無需設定字數。系統會綜合停頓、標點、語速和畫面文字寬度，自動確保字幕效果。",
 		"minWords": "每條字幕的最少字數",
 		"maxWords": "每條字幕的最多字數",
 		"wordsCount": "{{count}} 個詞",
@@ -63,6 +64,42 @@
 		"failed": "無法產生字幕。",
 		"truncated": "僅轉寫了最前 {{minutes}} 分鐘。"
 	},
+	"voiceover": {
+		"dialogTitle": "AI 配音",
+		"dialogDescription": "以標準、清晰的聲音朗讀轉錄文字,取代原始音軌。",
+		"tabCaptions": "字幕",
+		"tabVoiceover": "AI 配音",
+		"voice": "音色",
+		"style": "風格",
+		"styles": {
+			"sleek": "冷冽高級感",
+			"energetic": "熱情活力",
+			"broadcast": "標準播音",
+			"conversational": "自然口語"
+		},
+		"polish": "AI 潤飾文字(移除口頭語)",
+		"replaceOriginal": "取代原聲(將原音軌靜音)",
+		"hint": "時間軸上的字幕就是配音文稿——先編輯字幕文字即可改變朗讀內容。沒有字幕時會自動轉錄語音。",
+		"generate": "產生配音",
+		"regenerate": "重新產生配音",
+		"remove": "移除配音",
+		"transcribing": "正在轉錄語音…",
+		"synthesizing": "正在合成語音 {{done}}/{{total}}…",
+		"saving": "正在儲存音軌…",
+		"done": "配音已加入時間軸。",
+		"compressedNote": "{{count}} 句為對齊時間被略微加速。",
+		"removed": "已移除配音並還原原聲。",
+		"failed": "配音產生失敗。",
+		"busy": "配音正在產生中。",
+		"quality": "音質",
+		"qualityHd": "高保真",
+		"qualityStandard": "標準(較省錢)",
+		"targetLanguage": "目標語言",
+		"sourceLanguage": "原語言(不翻譯)",
+		"syncCaptions": "同步將時間軸字幕替換為譯文",
+		"translating": "正在翻譯文稿…",
+		"hdCostHint": "高保真使用 gpt-audio 系列模型(約 $0.1-0.2/分鐘音訊)。"
+	},
 	"emptyState": {
 		"title": "未開啟任何專案",
 		"description": "匯入影片以開始編輯，或載入現有的 OpenScreen 專案。",
@@ -77,5 +114,26 @@
 			"couldNotOpenTitle": "無法開啟檔案",
 			"couldNotOpenMessage": "無法開啟專案檔案。它所參照的影片可能已被移動或刪除。"
 		}
+	},
+	"background": {
+		"withBackground": "Background",
+		"noBackground": "No background",
+		"noBackgroundDescription": "Show only the recorded page edge-to-edge. Export will match the preview."
+	},
+	"mediaLibrary": {
+		"title": "Media Library",
+		"subtitle": "Your recordings and saved projects",
+		"back": "Back to editor",
+		"refresh": "Refresh",
+		"openFromComputer": "Open from computer",
+		"loading": "Loading library…",
+		"loadError": "Could not load the media library.",
+		"retry": "Try again",
+		"emptyTitle": "No recordings yet",
+		"emptyDescription": "Start a recording or open a video from your computer.",
+		"newRecording": "New recording",
+		"project": "Project",
+		"recording": "Recording",
+		"edited": "Project saved"
 	}
 }

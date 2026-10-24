@@ -47,7 +47,8 @@
 	"autoCaptions": {
 		"button": "Автосубтитры",
 		"dialogTitle": "Автосубтитры",
-		"dialogDescription": "Выберите, сколько примерно слов показывать в одном субтитре. Время распределяется между словами фразы.",
+		"dialogDescription": "Субтитры автоматически делятся на естественные и удобные для чтения фразы.",
+		"adaptiveHint": "Число слов настраивать не нужно. Паузы, пунктуация, темп речи и ширина текста учитываются автоматически.",
 		"minWords": "Минимум слов в субтитре",
 		"maxWords": "Максимум слов в субтитре",
 		"wordsCount": "{{count}} слов",
@@ -63,6 +64,42 @@
 		"failed": "Не удалось создать субтитры.",
 		"truncated": "Расшифрованы только первые {{minutes}} мин."
 	},
+	"voiceover": {
+		"dialogTitle": "ИИ-озвучка",
+		"dialogDescription": "Читает расшифровку чистым, стандартным голосом и заменяет исходную аудиодорожку.",
+		"tabCaptions": "Субтитры",
+		"tabVoiceover": "ИИ-озвучка",
+		"voice": "Голос",
+		"style": "Стиль",
+		"styles": {
+			"sleek": "Строгий премиум",
+			"energetic": "Энергичный",
+			"broadcast": "Дикторский",
+			"conversational": "Разговорный"
+		},
+		"polish": "Отшлифовать текст (убрать слова-паразиты)",
+		"replaceOriginal": "Заменить исходный звук (заглушить его)",
+		"hint": "Субтитры на таймлайне — это сценарий: сначала отредактируйте их текст, чтобы изменить озвучку. Без субтитров речь расшифровывается автоматически.",
+		"generate": "Создать озвучку",
+		"regenerate": "Пересоздать озвучку",
+		"remove": "Удалить озвучку",
+		"transcribing": "Расшифровка речи…",
+		"synthesizing": "Синтез речи {{done}}/{{total}}…",
+		"saving": "Сохранение аудиодорожки…",
+		"done": "Озвучка добавлена на таймлайн.",
+		"compressedNote": "{{count}} реплик слегка ускорены, чтобы уложиться в тайминг.",
+		"removed": "Озвучка удалена, исходный звук восстановлен.",
+		"failed": "Не удалось создать озвучку.",
+		"busy": "Озвучка уже генерируется.",
+		"quality": "Качество",
+		"qualityHd": "Высокая точность",
+		"qualityStandard": "Стандарт (дешевле)",
+		"targetLanguage": "Целевой язык",
+		"sourceLanguage": "Исходный язык (без перевода)",
+		"syncCaptions": "Также перевести субтитры на таймлайне",
+		"translating": "Перевод сценария…",
+		"hdCostHint": "Высокая точность использует модели gpt-audio (≈$0,1–0,2 за минуту аудио)."
+	},
 	"emptyState": {
 		"title": "Нет открытых проектов",
 		"description": "Импортируйте видео для начала редактирования или загрузите существующий проект OpenScreen.",
@@ -77,5 +114,26 @@
 			"couldNotOpenTitle": "Не удалось открыть файл",
 			"couldNotOpenMessage": "Не удалось открыть файл проекта. Видео, на которое он ссылается, возможно, было перемещено или удалено."
 		}
+	},
+	"background": {
+		"withBackground": "Background",
+		"noBackground": "No background",
+		"noBackgroundDescription": "Show only the recorded page edge-to-edge. Export will match the preview."
+	},
+	"mediaLibrary": {
+		"title": "Media Library",
+		"subtitle": "Your recordings and saved projects",
+		"back": "Back to editor",
+		"refresh": "Refresh",
+		"openFromComputer": "Open from computer",
+		"loading": "Loading library…",
+		"loadError": "Could not load the media library.",
+		"retry": "Try again",
+		"emptyTitle": "No recordings yet",
+		"emptyDescription": "Start a recording or open a video from your computer.",
+		"newRecording": "New recording",
+		"project": "Project",
+		"recording": "Recording",
+		"edited": "Project saved"
 	}
 }

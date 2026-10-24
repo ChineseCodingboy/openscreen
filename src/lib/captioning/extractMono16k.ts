@@ -48,20 +48,6 @@ async function loadSourceVideoFile(videoUrl: string, signal?: AbortSignal): Prom
 	return new File([blob], filename, { type: blob.type || "video/webm" });
 }
 
-function mixToMono(audioBuffer: AudioBuffer): Float32Array {
-	const { length, numberOfChannels } = audioBuffer;
-	const out = new Float32Array(length);
-	if (numberOfChannels === 0) return out;
-	for (let i = 0; i < length; i++) {
-		let sum = 0;
-		for (let c = 0; c < numberOfChannels; c++) {
-			sum += audioBuffer.getChannelData(c)[i];
-		}
-		out[i] = sum / numberOfChannels;
-	}
-	return out;
-}
-
 async function resampleMono(
 	mono: Float32Array,
 	fromRate: number,
@@ -112,48 +98,14 @@ export async function extractMono16kFromVideoUrl(
 	options?: { signal?: AbortSignal },
 ): Promise<{ samples: Float32Array; truncated: boolean; durationSec: number }> {
 	const file = await loadSourceVideoFile(videoUrl, options?.signal);
-
-	/** When this returns null, use web-demuxer + AudioDecoder (same as export). */
-	const tryDecodeAudioDataPath = async (): Promise<{
-		samples: Float32Array;
-		truncated: boolean;
-		durationSec: number;
-	} | null> => {
-		const audioContext = new AudioContext();
-		try {
-			const ab = await file.arrayBuffer();
-			if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
-			const audioBuffer = await audioContext.decodeAudioData(ab.slice(0));
-			if (
-				audioBuffer.numberOfChannels === 0 ||
-				audioBuffer.length === 0 ||
-				!Number.isFinite(audioBuffer.duration) ||
-				audioBuffer.duration <= 0
-			) {
-				return null;
-			}
-			const durationSec = audioBuffer.duration;
-			const mono = mixToMono(audioBuffer);
-			const fromRate = audioBuffer.sampleRate;
-			const out = await truncateAndResampleTo16k(mono, fromRate, durationSec, options?.signal);
-			// decodeAudioData can resolve for some WebM/Matroska inputs yet yield almost no usable
-			// PCM, and captions only fall back to the demuxer path on throw, so return null to recover.
-			if (out.samples.length < 800) {
-				return null;
-			}
-			return out;
-		} catch {
-			return null;
-		} finally {
-			await audioContext.close().catch(() => undefined);
-		}
-	};
-
-	const primary = await tryDecodeAudioDataPath();
-	if (primary) {
-		return primary;
-	}
-
-	const pcm = await extractMonoPcmViaWebDemuxer(file, options?.signal);
-	return truncateAndResampleTo16k(pcm.mono, pcm.sampleRate, pcm.durationSec, options?.signal);
+	// ScreenCaptureKit writes system and microphone audio into separate tracks. The
+	// browser decoder silently picks the first one on macOS, which is often the
+	// near-empty system stream; the demuxer below explicitly chooses the substantive track.
+	const preferredPcm = await extractMonoPcmViaWebDemuxer(file, options?.signal);
+	return truncateAndResampleTo16k(
+		preferredPcm.mono,
+		preferredPcm.sampleRate,
+		preferredPcm.durationSec,
+		options?.signal,
+	);
 }

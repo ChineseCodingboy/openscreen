@@ -1,32 +1,60 @@
-import type {
-	AnnotationRegion,
-	CropRegion,
-	SpeedRegion,
-	TrimRegion,
-	WebcamLayoutPreset,
-	WebcamSizePreset,
-	ZoomRegion,
+import { TimelineMapper } from "@/components/video-editor/timeline/timelineMapper";
+import {
+	type AnnotationRegion,
+	type AudioTrackClip,
+	type CropRegion,
+	isFileBackedAudioClip,
+	type SpeedRegion,
+	type TrimRegion,
+	type VideoTrackClip,
+	type WebcamLayoutPreset,
+	type WebcamSizePreset,
+	type ZoomRegion,
 } from "@/components/video-editor/types";
 import { BackgroundLoadError } from "@/lib/wallpaper";
+import { mapScreenSourceToWebcam, type WebcamSyncMetadata } from "@/lib/webcamSync";
 import type { CursorRecordingData } from "@/native/contracts";
 import { getPlatform } from "@/utils/platformUtils";
 import { AudioProcessor } from "./audioEncoder";
+import { CaptionFrameRenderer } from "./captionFrameRenderer";
 import { FrameRenderer } from "./frameRenderer";
+import {
+	buildMediaTimelineTiming,
+	buildMediaVideoDecodeJobs,
+	frameIndexForExportTimestamp,
+	frameIndexForTimelineTime,
+	shouldRenderMediaBackground,
+	timelineTimeForExportTime,
+	totalFramesForExportDuration,
+} from "./mediaTimelineTiming";
 import { VideoMuxer } from "./muxer";
 import { StreamingVideoDecoder } from "./streamingDecoder";
 import { TimestampedVideoFrameQueue } from "./timestampedVideoFrameQueue";
-import type { ExportConfig, ExportProgress, ExportResult } from "./types";
+import type {
+	ExportConfig,
+	ExportPath,
+	ExportProgress,
+	ExportQuality,
+	ExportResult,
+} from "./types";
 
 const ENCODER_STALL_TIMEOUT_MS = 15_000;
 const ENCODER_FLUSH_TIMEOUT_MS = 20_000;
 
 export interface VideoExporterConfig extends ExportConfig {
+	maxFrameRate?: number;
+	exportQuality?: ExportQuality;
 	videoUrl: string;
 	webcamVideoUrl?: string;
+	webcamSync?: WebcamSyncMetadata;
 	wallpaper: string;
+	backgroundMode?: "wallpaper" | "none";
 	zoomRegions: ZoomRegion[];
 	trimRegions?: TrimRegion[];
 	speedRegions?: SpeedRegion[];
+	audioTrackClips?: AudioTrackClip[];
+	videoTrackClips?: VideoTrackClip[];
+	videoTrackHidden?: boolean;
 	showShadow: boolean;
 	shadowIntensity: number;
 	showBlur: boolean;
@@ -44,6 +72,7 @@ export interface VideoExporterConfig extends ExportConfig {
 	cursorRecordingData?: CursorRecordingData | null;
 	cursorScale?: number;
 	cursorSmoothing?: number;
+	smartCursorEnabled?: boolean;
 	cursorMotionBlur?: number;
 	cursorClickBounce?: number;
 	cursorClipToBounds?: boolean;
@@ -54,6 +83,39 @@ export interface VideoExporterConfig extends ExportConfig {
 	cursorTelemetry?: import("@/components/video-editor/types").CursorTelemetryPoint[];
 	cursorClickTimestamps?: number[];
 	onProgress?: (progress: ExportProgress) => void;
+}
+
+export interface ExportPlan {
+	path: ExportPath;
+	reasons: string[];
+}
+
+export function selectExportFrameRate(
+	config: Pick<VideoExporterConfig, "frameRate" | "maxFrameRate">,
+	sourceFrameRate: number,
+	path: ExportPath,
+) {
+	const requestedFrameRate = Math.max(
+		1,
+		Math.min(config.frameRate, config.maxFrameRate ?? config.frameRate),
+	);
+	if (Number.isFinite(sourceFrameRate) && sourceFrameRate > 0) {
+		if (path !== "composite") return sourceFrameRate;
+		// Rendering duplicate frames above the source cadence costs export time without
+		// adding motion detail. Lower presets can still intentionally cap a high-FPS source.
+		return Math.min(requestedFrameRate, sourceFrameRate);
+	}
+	return requestedFrameRate;
+}
+
+export function shouldExportAudio(hasSourceAudio: boolean, clips?: AudioTrackClip[]): boolean {
+	// A file-backed clip (voice-over) carries its own audio even when the source has none.
+	const hasAudibleFileBackedClip = Boolean(
+		clips?.some((clip) => isFileBackedAudioClip(clip) && !clip.muted && clip.gain > 0),
+	);
+	if (!hasSourceAudio && !hasAudibleFileBackedClip) return false;
+	if (!clips?.length) return true;
+	return clips.some((clip) => !clip.muted && clip.gain > 0);
 }
 
 const SOURCE_COPY_EPSILON = 0.0001;
@@ -76,6 +138,16 @@ function hasNativeCursorOverlay(config: VideoExporterConfig) {
 	return (config.cursorScale ?? 0) > 0;
 }
 
+function hasOnlyAutoCaptionText(regions?: AnnotationRegion[]) {
+	const active = regions?.filter((region) => region.endMs - region.startMs > SOURCE_COPY_EPSILON);
+	return Boolean(
+		active?.length &&
+			active.every(
+				(region) => region.type === "text" && region.annotationSource === "auto-caption",
+			),
+	);
+}
+
 function isDefaultCrop(cropRegion: CropRegion) {
 	return (
 		Math.abs(cropRegion.x) <= SOURCE_COPY_EPSILON &&
@@ -85,16 +157,91 @@ function isDefaultCrop(cropRegion: CropRegion) {
 	);
 }
 
-export function isSourceCopyFastPathEligible(
+function hasContiguousMonotonicVideo(config: VideoExporterConfig) {
+	if (config.videoTrackHidden) return false;
+	const clips = [...(config.videoTrackClips ?? [])].sort(
+		(left, right) => left.startMs - right.startMs,
+	);
+	if (clips.length === 0) return true;
+	let timelineCursor = 0;
+	let sourceCursor = -Infinity;
+	for (const clip of clips) {
+		if (Math.abs(clip.startMs - timelineCursor) > SOURCE_COPY_EPSILON) return false;
+		if (clip.sourceStartMs < sourceCursor - SOURCE_COPY_EPSILON) return false;
+		timelineCursor = clip.endMs;
+		sourceCursor = clip.sourceStartMs + clip.endMs - clip.startMs;
+	}
+	return true;
+}
+
+export function getCompositeExportBlockers(
 	config: VideoExporterConfig,
 	videoInfo: { width: number; height: number },
+) {
+	const blockers: string[] = [];
+	const usesFastCaptionOverlay = hasOnlyAutoCaptionText(config.annotationRegions);
+	if (
+		(config.width !== videoInfo.width || config.height !== videoInfo.height) &&
+		!usesFastCaptionOverlay
+	)
+		blockers.push("output size differs from source");
+	if (config.webcamVideoUrl) blockers.push("webcam overlay");
+	if (!hasContiguousMonotonicVideo(config)) blockers.push("video background gap or reorder");
+	if (config.videoTrackClips?.length && hasActiveSpeedRegions(config.speedRegions)) {
+		blockers.push("media timeline speed resampling");
+	}
+	if (hasActiveTimeRegions(config.zoomRegions)) blockers.push("zoom");
+	if (hasActiveTimeRegions(config.annotationRegions) && !usesFastCaptionOverlay)
+		blockers.push("annotation or blur");
+	if (hasNativeCursorOverlay(config)) blockers.push("cursor overlay");
+	if (!isDefaultCrop(config.cropRegion) && !usesFastCaptionOverlay) blockers.push("crop");
+	if ((config.padding ?? 0) > SOURCE_COPY_EPSILON && !usesFastCaptionOverlay)
+		blockers.push("padding");
+	if ((config.videoPadding ?? 0) > SOURCE_COPY_EPSILON && !usesFastCaptionOverlay)
+		blockers.push("video padding");
+	if ((config.borderRadius ?? 0) > SOURCE_COPY_EPSILON && !usesFastCaptionOverlay)
+		blockers.push("roundness");
+	if (
+		(config.showShadow || config.shadowIntensity > SOURCE_COPY_EPSILON) &&
+		!usesFastCaptionOverlay
+	)
+		blockers.push("shadow");
+	if (config.showBlur && !usesFastCaptionOverlay) blockers.push("background blur");
+	if ((config.motionBlurAmount ?? 0) > SOURCE_COPY_EPSILON) blockers.push("motion blur");
+	return blockers;
+}
+
+export function createExportPlan(
+	config: VideoExporterConfig,
+	videoInfo: { width: number; height: number; duration?: number },
+	options: { packetBoundariesAreKeyframes?: boolean } = {},
+): ExportPlan {
+	const sourceCopyBlockers = getSourceCopyFastPathBlockers(config, videoInfo);
+	if (sourceCopyBlockers.length === 0) return { path: "source-copy", reasons: [] };
+	const compositeBlockers = getCompositeExportBlockers(config, videoInfo);
+	if (compositeBlockers.length > 0) return { path: "composite", reasons: compositeBlockers };
+	const packetOnlyEdits =
+		!hasActiveSpeedRegions(config.speedRegions) &&
+		!hasActiveTimeRegions(config.annotationRegions) &&
+		!config.audioTrackClips?.some(
+			(clip) => clip.muted || clip.gain !== 1 || isFileBackedAudioClip(clip),
+		);
+	if (options.packetBoundariesAreKeyframes && packetOnlyEdits) {
+		return { path: "packet-remux", reasons: sourceCopyBlockers };
+	}
+	return { path: "direct-transcode", reasons: sourceCopyBlockers };
+}
+
+export function isSourceCopyFastPathEligible(
+	config: VideoExporterConfig,
+	videoInfo: { width: number; height: number; duration?: number },
 ) {
 	return getSourceCopyFastPathBlockers(config, videoInfo).length === 0;
 }
 
 export function getSourceCopyFastPathBlockers(
 	config: VideoExporterConfig,
-	videoInfo: { width: number; height: number },
+	videoInfo: { width: number; height: number; duration?: number },
 ) {
 	const blockers: string[] = [];
 
@@ -104,8 +251,30 @@ export function getSourceCopyFastPathBlockers(
 		);
 	}
 	if (config.webcamVideoUrl) blockers.push("webcam overlay is enabled");
+	if (config.videoTrackHidden) blockers.push("video track is hidden");
 	if (hasActiveTimeRegions(config.trimRegions)) blockers.push("trim regions are present");
 	if (hasActiveSpeedRegions(config.speedRegions)) blockers.push("speed regions are present");
+	if (
+		config.videoTrackClips?.length &&
+		(config.videoTrackClips.length !== 1 ||
+			config.videoTrackClips[0].startMs !== 0 ||
+			config.videoTrackClips[0].sourceStartMs !== 0 ||
+			(typeof videoInfo.duration === "number" &&
+				Math.abs(config.videoTrackClips[0].endMs - videoInfo.duration * 1000) >
+					SOURCE_COPY_EPSILON))
+	) {
+		blockers.push("video track is edited");
+	}
+	if (
+		config.audioTrackClips?.some(
+			(clip) => clip.startMs !== 0 || clip.sourceStartMs !== 0 || clip.muted || clip.gain !== 1,
+		)
+	) {
+		blockers.push("audio tracks are edited");
+	}
+	if (config.audioTrackClips?.some((clip) => isFileBackedAudioClip(clip))) {
+		blockers.push("voice-over track is present");
+	}
 	if (hasActiveTimeRegions(config.zoomRegions)) blockers.push("zoom regions are present");
 	if (hasActiveTimeRegions(config.annotationRegions))
 		blockers.push("annotation regions are present");
@@ -198,11 +367,14 @@ export class VideoExporter {
 	private async exportWithEncoderPreference(
 		encoderPreference: HardwareAcceleration,
 	): Promise<ExportResult> {
+		const exportStartedAt = performance.now();
+		const stageDurationsMs: Record<string, number> = {};
 		let webcamFrameQueue: TimestampedVideoFrameQueue | null = null;
 		let stopWebcamDecode = false;
 		let webcamDecodeError: Error | null = null;
 		let webcamDecodePromise: Promise<void> | null = null;
 		let webcamDecoder: StreamingVideoDecoder | null = null;
+		let lastDirectVideoFrame: VideoFrame | null = null;
 		const warnings: string[] = [];
 		const onWarning = (message: string) => warnings.push(message);
 
@@ -212,13 +384,62 @@ export class VideoExporter {
 
 		try {
 			const platform = await getPlatform();
+			this.reportProgress({
+				currentFrame: 0,
+				totalFrames: 1,
+				percentage: 0,
+				estimatedTimeRemaining: 0,
+				phase: "analyzing",
+			});
 
 			const streamingDecoder = new StreamingVideoDecoder();
 			this.streamingDecoder = streamingDecoder;
+			const analysisStartedAt = performance.now();
 			const videoInfo = await streamingDecoder.loadMetadata(this.config.videoUrl);
+			stageDurationsMs.analysis = performance.now() - analysisStartedAt;
 			const sourceCopyResult = await this.trySourceCopyFastPath(videoInfo);
 			if (sourceCopyResult) {
-				return sourceCopyResult;
+				return {
+					...sourceCopyResult,
+					path: "source-copy",
+					diagnostics: {
+						frameCount: 0,
+						frameRate: videoInfo.frameRate,
+						stageDurationsMs: {
+							...stageDurationsMs,
+							total: performance.now() - exportStartedAt,
+						},
+					},
+				};
+			}
+			const exportPlan = createExportPlan(this.config, videoInfo);
+			this.config.frameRate = selectExportFrameRate(
+				this.config,
+				videoInfo.frameRate,
+				exportPlan.path,
+			);
+			const usesCompositeRenderer = exportPlan.path === "composite";
+			const usesCaptionOverlay =
+				!usesCompositeRenderer && hasOnlyAutoCaptionText(this.config.annotationRegions);
+			console.info(`[VideoExporter] using ${exportPlan.path} path`, {
+				reasons: exportPlan.reasons,
+				frameRate: this.config.frameRate,
+				captionOverlay: usesCaptionOverlay,
+			});
+			if (exportPlan.path === "direct-transcode" && !usesCaptionOverlay) {
+				const remuxResult = await this.tryPacketRemuxFastPath(videoInfo, stageDurationsMs);
+				if (remuxResult) {
+					return {
+						...remuxResult,
+						diagnostics: {
+							...remuxResult.diagnostics,
+							stageDurationsMs: {
+								...stageDurationsMs,
+								total: performance.now() - exportStartedAt,
+							},
+						},
+					};
+				}
 			}
 
 			let webcamInfo: Awaited<ReturnType<StreamingVideoDecoder["loadMetadata"]>> | null = null;
@@ -228,203 +449,426 @@ export class VideoExporter {
 				webcamInfo = await webcamDecoder.loadMetadata(this.config.webcamVideoUrl);
 			}
 
-			const renderer = new FrameRenderer({
-				width: this.config.width,
-				height: this.config.height,
-				wallpaper: this.config.wallpaper,
-				zoomRegions: this.config.zoomRegions,
-				showShadow: this.config.showShadow,
-				shadowIntensity: this.config.shadowIntensity,
-				showBlur: this.config.showBlur,
-				motionBlurAmount: this.config.motionBlurAmount,
-				borderRadius: this.config.borderRadius,
-				padding: this.config.padding,
-				cropRegion: this.config.cropRegion,
-				cursorRecordingData: this.config.cursorRecordingData,
-				cursorScale: this.config.cursorScale,
-				cursorSmoothing: this.config.cursorSmoothing,
-				cursorMotionBlur: this.config.cursorMotionBlur,
-				cursorClickBounce: this.config.cursorClickBounce,
-				cursorClipToBounds: this.config.cursorClipToBounds,
-				cursorTheme: this.config.cursorTheme,
-				videoWidth: videoInfo.width,
-				videoHeight: videoInfo.height,
-				webcamSize: webcamInfo ? { width: webcamInfo.width, height: webcamInfo.height } : null,
-				webcamLayoutPreset: this.config.webcamLayoutPreset,
-				webcamMaskShape: this.config.webcamMaskShape,
-				webcamMirrored: this.config.webcamMirrored,
-				webcamReactiveZoom: this.config.webcamReactiveZoom,
-				webcamSizePreset: this.config.webcamSizePreset,
-				webcamPosition: this.config.webcamPosition,
-				annotationRegions: this.config.annotationRegions,
-				speedRegions: this.config.speedRegions,
-				previewWidth: this.config.previewWidth,
-				previewHeight: this.config.previewHeight,
-				cursorTelemetry: this.config.cursorTelemetry,
-				cursorClickTimestamps: this.config.cursorClickTimestamps,
-				platform,
-			});
+			const renderer = usesCompositeRenderer
+				? new FrameRenderer({
+						width: this.config.width,
+						height: this.config.height,
+						wallpaper: this.config.wallpaper,
+						backgroundMode: this.config.backgroundMode,
+						zoomRegions: this.config.zoomRegions,
+						showShadow: this.config.showShadow,
+						shadowIntensity: this.config.shadowIntensity,
+						showBlur: this.config.showBlur,
+						motionBlurAmount: this.config.motionBlurAmount,
+						borderRadius: this.config.borderRadius,
+						padding: this.config.padding,
+						cropRegion: this.config.cropRegion,
+						cursorRecordingData: this.config.cursorRecordingData,
+						cursorScale: this.config.cursorScale,
+						cursorSmoothing: this.config.cursorSmoothing,
+						smartCursorEnabled: this.config.smartCursorEnabled,
+						cursorMotionBlur: this.config.cursorMotionBlur,
+						cursorClickBounce: this.config.cursorClickBounce,
+						cursorClipToBounds: this.config.cursorClipToBounds,
+						cursorTheme: this.config.cursorTheme,
+						videoWidth: videoInfo.width,
+						videoHeight: videoInfo.height,
+						webcamSize: webcamInfo ? { width: webcamInfo.width, height: webcamInfo.height } : null,
+						webcamLayoutPreset: this.config.webcamLayoutPreset,
+						webcamMaskShape: this.config.webcamMaskShape,
+						webcamMirrored: this.config.webcamMirrored,
+						webcamReactiveZoom: this.config.webcamReactiveZoom,
+						webcamSizePreset: this.config.webcamSizePreset,
+						webcamPosition: this.config.webcamPosition,
+						annotationRegions: this.config.annotationRegions,
+						speedRegions: this.config.speedRegions,
+						previewWidth: this.config.previewWidth,
+						previewHeight: this.config.previewHeight,
+						cursorTelemetry: this.config.cursorTelemetry,
+						cursorClickTimestamps: this.config.cursorClickTimestamps,
+						platform,
+					})
+				: null;
 			this.renderer = renderer;
-			await renderer.initialize();
+			if (renderer) await renderer.initialize();
+
+			const captionRenderer = usesCaptionOverlay
+				? new CaptionFrameRenderer({
+						width: this.config.width,
+						height: this.config.height,
+						videoWidth: videoInfo.width,
+						videoHeight: videoInfo.height,
+						wallpaper: this.config.wallpaper,
+						backgroundMode: this.config.backgroundMode,
+						cropRegion: this.config.cropRegion,
+						padding: this.config.padding ?? this.config.videoPadding,
+						borderRadius: this.config.borderRadius,
+						showShadow: this.config.showShadow,
+						shadowIntensity: this.config.shadowIntensity,
+						showBlur: this.config.showBlur,
+						annotationRegions: this.config.annotationRegions ?? [],
+						previewWidth: this.config.previewWidth,
+						previewHeight: this.config.previewHeight,
+					})
+				: null;
+			await captionRenderer?.initialize();
 
 			await this.initializeEncoder(encoderPreference);
 
 			const sourceDemuxer = streamingDecoder.getDemuxer();
-			const audioExportCodec =
-				videoInfo.hasAudio && sourceDemuxer
+			const expectsAudio = shouldExportAudio(videoInfo.hasAudio, this.config.audioTrackClips);
+			let audioExportCodec =
+				expectsAudio && sourceDemuxer
 					? await AudioProcessor.selectSupportedExportCodecForSource(sourceDemuxer)
 					: null;
-			if (videoInfo.hasAudio && !audioExportCodec) {
-				console.warn("[VideoExporter] No supported audio export codec, exporting video-only.");
+			if (
+				expectsAudio &&
+				!audioExportCodec &&
+				this.config.audioTrackClips?.some((clip) => isFileBackedAudioClip(clip))
+			) {
+				// Voice-over over a silent source: no source stream to derive a codec from.
+				audioExportCodec = await AudioProcessor.selectSupportedExportCodec(48_000, 1);
+			}
+			if (expectsAudio && !audioExportCodec) {
+				throw new Error("The source contains audio, but no safe audio export path is available.");
 			}
 
-			const hasAudio = Boolean(audioExportCodec);
+			const hasAudio = expectsAudio && Boolean(audioExportCodec);
 			const muxer = new VideoMuxer(this.config, hasAudio, audioExportCodec?.muxerCodec);
 			this.muxer = muxer;
 			await muxer.initialize();
 
-			const { totalFrames } = streamingDecoder.getExportMetrics(
+			const { totalFrames: sourceTotalFrames } = streamingDecoder.getExportMetrics(
 				this.config.frameRate,
 				this.config.trimRegions,
 				this.config.speedRegions,
 			);
+			const timelineMapper = new TimelineMapper(
+				this.config.videoTrackClips ?? [],
+				this.config.audioTrackClips ?? [],
+				this.config.speedRegions ?? [],
+			);
+			const usesMediaTimeline = Boolean(
+				this.config.videoTrackClips?.length || this.config.videoTrackHidden,
+			);
+			const mediaTiming = usesMediaTimeline
+				? buildMediaTimelineTiming(timelineMapper.durationMs, this.config.speedRegions ?? [])
+				: null;
+			const mediaDecodeJobs = usesMediaTimeline
+				? buildMediaVideoDecodeJobs(
+						this.config.videoTrackClips ?? [],
+						Math.round(videoInfo.duration * 1000),
+						this.config.speedRegions ?? [],
+					)
+				: [];
+			const totalFrames = usesMediaTimeline
+				? totalFramesForExportDuration(mediaTiming?.exportDurationMs ?? 0, this.config.frameRate)
+				: sourceTotalFrames;
+			const audioTimelineDurationSec = usesMediaTimeline
+				? timelineMapper.durationMs / 1000
+				: videoInfo.duration;
 
 			const frameDuration = 1_000_000 / this.config.frameRate;
 			let frameIndex = 0;
+			const mediaBackgroundTimestampUs = () =>
+				mediaTiming
+					? timelineTimeForExportTime(mediaTiming, (frameIndex * 1000) / this.config.frameRate) *
+						1000
+					: frameIndex * frameDuration;
 			const maxEncodeQueue =
 				encoderPreference === "prefer-software"
 					? Math.min(this.MAX_ENCODE_QUEUE, 32)
 					: this.MAX_ENCODE_QUEUE;
 
-			webcamFrameQueue = this.config.webcamVideoUrl ? new TimestampedVideoFrameQueue() : null;
-			webcamDecodePromise =
-				webcamDecoder && webcamFrameQueue
-					? (() => {
-							const queue = webcamFrameQueue;
-							return webcamDecoder
-								.decodeAll(
-									this.config.frameRate,
-									this.config.trimRegions,
-									this.config.speedRegions,
-									async (webcamFrame, _exportTimestampUs, webcamSourceTimestampMs) => {
-										while (queue.length >= 12 && !this.cancelled && !stopWebcamDecode) {
-											await new Promise((resolve) => setTimeout(resolve, 2));
-										}
-										if (this.cancelled || stopWebcamDecode) {
-											webcamFrame.close();
-											return;
-										}
-										queue.enqueue(webcamFrame, webcamSourceTimestampMs);
-									},
-									onWarning,
-								)
-								.catch((error) => {
-									webcamDecodeError = error instanceof Error ? error : new Error(String(error));
-									throw webcamDecodeError;
-								})
-								.finally(() => {
-									if (webcamDecodeError) {
-										queue.fail(webcamDecodeError);
-									} else {
-										queue.close();
-									}
-								});
-						})()
-					: null;
-
-			await streamingDecoder.decodeAll(
-				this.config.frameRate,
-				this.config.trimRegions,
-				this.config.speedRegions,
-				async (videoFrame, _exportTimestampUs, sourceTimestampMs) => {
-					let webcamFrame: VideoFrame | null = null;
-					try {
-						if (this.cancelled) {
-							return;
-						}
-
-						if (this.fatalEncoderError) {
-							throw this.fatalEncoderError;
-						}
-
-						const timestamp = frameIndex * frameDuration;
-						webcamFrame = webcamFrameQueue
-							? await webcamFrameQueue.frameAt(sourceTimestampMs)
-							: null;
-						if (this.cancelled) {
-							return;
-						}
-
-						const sourceTimestampUs = sourceTimestampMs * 1000;
-						await renderer.renderFrame(videoFrame, sourceTimestampUs, webcamFrame);
-
-						const canvas = renderer.getCanvas();
-
-						let exportFrame: VideoFrame;
-
-						// On some Linux systems the GPU shared-image path (EGL/Ozone) fails
-						// silently, producing empty frames, so we force a CPU readback instead.
-						if (platform === "linux") {
-							const canvasCtx = canvas.getContext("2d")!;
-							const imageData = canvasCtx.getImageData(0, 0, canvas.width, canvas.height);
-							exportFrame = new VideoFrame(imageData.data.buffer, {
-								format: "RGBA",
-								codedWidth: canvas.width,
-								codedHeight: canvas.height,
-								timestamp,
-								duration: frameDuration,
-								colorSpace: {
-									primaries: "bt709",
-									transfer: "iec61966-2-1",
-									matrix: "rgb",
-									fullRange: true,
-								},
-							});
-						} else {
-							exportFrame = new VideoFrame(canvas, { timestamp, duration: frameDuration });
-						}
-
-						while (
-							this.encoder &&
-							this.encoder.encodeQueueSize >= maxEncodeQueue &&
-							!this.cancelled
-						) {
-							if (Date.now() - this.lastEncoderOutputAt > ENCODER_STALL_TIMEOUT_MS) {
-								exportFrame.close();
-								throw new Error(
-									encoderPreference === "prefer-hardware"
-										? "The hardware video encoder stopped responding. Retrying with a safer encoder."
-										: "The video encoder stopped responding during export.",
-								);
-							}
-							await new Promise((resolve) => setTimeout(resolve, 5));
-						}
-
-						if (this.encoder && this.encoder.state === "configured") {
-							this.encodeQueue++;
-							this.encoder.encode(exportFrame, { keyFrame: frameIndex % 150 === 0 });
-						} else {
-							console.warn(
-								`[Frame ${frameIndex}] Encoder not ready! State: ${this.encoder?.state}`,
-							);
-						}
-
+			const encodeFrame = async (exportFrame: VideoFrame) => {
+				while (this.encoder && this.encoder.encodeQueueSize >= maxEncodeQueue && !this.cancelled) {
+					if (Date.now() - this.lastEncoderOutputAt > ENCODER_STALL_TIMEOUT_MS) {
 						exportFrame.close();
-						frameIndex++;
-
-						this.reportProgress({
-							currentFrame: frameIndex,
-							totalFrames,
-							percentage: (frameIndex / totalFrames) * 100,
-							estimatedTimeRemaining: 0,
-						});
-					} finally {
-						videoFrame.close();
-						webcamFrame?.close();
+						throw new Error(
+							encoderPreference === "prefer-hardware"
+								? "The hardware video encoder stopped responding. Retrying with a safer encoder."
+								: "The video encoder stopped responding during export.",
+						);
 					}
-				},
-				onWarning,
-			);
+					await new Promise((resolve) => setTimeout(resolve, 5));
+				}
+				if (this.encoder?.state === "configured") {
+					this.encodeQueue++;
+					this.encoder.encode(exportFrame, { keyFrame: frameIndex % 150 === 0 });
+				}
+				exportFrame.close();
+				frameIndex++;
+				this.reportProgress({
+					currentFrame: frameIndex,
+					totalFrames,
+					percentage: Math.min(100, (frameIndex / totalFrames) * 100),
+					estimatedTimeRemaining: 0,
+					phase: "video",
+				});
+			};
+
+			const encodeRenderedCanvas = async () => {
+				if (!renderer) throw new Error("Composite renderer is not initialized");
+				const canvas = renderer.getCanvas();
+				const timestamp = frameIndex * frameDuration;
+				let exportFrame: VideoFrame;
+				if (platform === "linux") {
+					const canvasCtx = canvas.getContext("2d")!;
+					const imageData = canvasCtx.getImageData(0, 0, canvas.width, canvas.height);
+					exportFrame = new VideoFrame(imageData.data.buffer, {
+						format: "RGBA",
+						codedWidth: canvas.width,
+						codedHeight: canvas.height,
+						timestamp,
+						duration: frameDuration,
+						colorSpace: {
+							primaries: "bt709",
+							transfer: "iec61966-2-1",
+							matrix: "rgb",
+							fullRange: true,
+						},
+					});
+				} else {
+					exportFrame = new VideoFrame(canvas, { timestamp, duration: frameDuration });
+				}
+				await encodeFrame(exportFrame);
+			};
+
+			const encodeDirectFrame = async (sourceFrame: VideoFrame, timelineTimestampMs: number) => {
+				if (!usesCaptionOverlay) {
+					await encodeFrame(
+						new VideoFrame(sourceFrame, {
+							timestamp: frameIndex * frameDuration,
+							duration: frameDuration,
+						}),
+					);
+					return;
+				}
+				if (!captionRenderer) {
+					throw new Error("Fast caption renderer is unavailable.");
+				}
+				await captionRenderer.renderFrame(sourceFrame, timelineTimestampMs);
+				const captionCanvas = captionRenderer.getCanvas();
+				let exportFrame: VideoFrame;
+				if (platform === "linux") {
+					const captionCtx = captionCanvas.getContext("2d");
+					if (!captionCtx) throw new Error("Fast caption renderer is unavailable.");
+					const imageData = captionCtx.getImageData(
+						0,
+						0,
+						captionCanvas.width,
+						captionCanvas.height,
+					);
+					exportFrame = new VideoFrame(imageData.data.buffer, {
+						format: "RGBA",
+						codedWidth: captionCanvas.width,
+						codedHeight: captionCanvas.height,
+						timestamp: frameIndex * frameDuration,
+						duration: frameDuration,
+					});
+				} else {
+					exportFrame = new VideoFrame(captionCanvas, {
+						timestamp: frameIndex * frameDuration,
+						duration: frameDuration,
+					});
+				}
+				await encodeFrame(exportFrame);
+			};
+
+			const startWebcamDecode = (_trimRegions?: TrimRegion[], _speedRegions?: SpeedRegion[]) => {
+				if (!webcamDecoder) return;
+				stopWebcamDecode = false;
+				webcamDecodeError = null;
+				webcamFrameQueue = new TimestampedVideoFrameQueue();
+				const queue = webcamFrameQueue;
+				webcamDecodePromise = webcamDecoder
+					.decodeAll(
+						this.config.frameRate,
+						undefined,
+						undefined,
+						async (webcamFrame, _exportTimestampUs, webcamSourceTimestampMs) => {
+							while (queue.length >= 12 && !this.cancelled && !stopWebcamDecode) {
+								await new Promise((resolve) => setTimeout(resolve, 2));
+							}
+							if (this.cancelled || stopWebcamDecode) {
+								webcamFrame.close();
+								return;
+							}
+							queue.enqueue(webcamFrame, webcamSourceTimestampMs);
+						},
+						onWarning,
+					)
+					.catch((error) => {
+						webcamDecodeError = error instanceof Error ? error : new Error(String(error));
+						throw webcamDecodeError;
+					})
+					.finally(() => {
+						if (webcamDecodeError) queue.fail(webcamDecodeError);
+						else queue.close();
+					});
+			};
+			const finishWebcamDecode = async () => {
+				stopWebcamDecode = true;
+				webcamFrameQueue?.destroy();
+				await webcamDecodePromise;
+				webcamFrameQueue = null;
+				webcamDecodePromise = null;
+			};
+
+			const processDecodedVideoFrame = async (
+				videoFrame: VideoFrame,
+				sourceTimestampMs: number,
+				timelineTimestampMs: number,
+				targetFrameIndex: number,
+			) => {
+				let webcamFrame: VideoFrame | null = null;
+				try {
+					if (this.cancelled) return;
+					if (this.fatalEncoderError) throw this.fatalEncoderError;
+					if (!usesCompositeRenderer) {
+						while (frameIndex < targetFrameIndex && frameIndex < totalFrames) {
+							const fillSource = lastDirectVideoFrame ?? videoFrame;
+							await encodeDirectFrame(fillSource, (frameIndex * 1000) / this.config.frameRate);
+						}
+						lastDirectVideoFrame?.close();
+						lastDirectVideoFrame = new VideoFrame(videoFrame, {
+							timestamp: videoFrame.timestamp,
+						});
+						if (targetFrameIndex < frameIndex || frameIndex >= totalFrames) return;
+						await encodeDirectFrame(videoFrame, timelineTimestampMs);
+						return;
+					}
+					if (!renderer) throw new Error("Composite renderer is not initialized");
+					while (frameIndex < targetFrameIndex && frameIndex < totalFrames) {
+						if (!usesMediaTimeline)
+							await renderer.renderBackgroundFrame(frameIndex * frameDuration);
+						await encodeRenderedCanvas();
+					}
+					if (targetFrameIndex < frameIndex || frameIndex >= totalFrames) return;
+					const webcamSourceTimestampMs = mapScreenSourceToWebcam(
+						sourceTimestampMs,
+						this.config.webcamSync,
+						{ webcamDurationMs: webcamInfo ? webcamInfo.duration * 1000 : undefined },
+					);
+					webcamFrame =
+						webcamFrameQueue && webcamSourceTimestampMs !== null
+							? await webcamFrameQueue.frameAt(webcamSourceTimestampMs)
+							: null;
+					if (this.cancelled) return;
+					await renderer.renderFrame(
+						videoFrame,
+						timelineTimestampMs * 1000,
+						webcamFrame,
+						sourceTimestampMs * 1000,
+					);
+					await encodeRenderedCanvas();
+				} finally {
+					videoFrame.close();
+					webcamFrame?.close();
+				}
+			};
+
+			const videoStartedAt = performance.now();
+			if (!this.config.videoTrackHidden) {
+				if (usesMediaTimeline && mediaTiming) {
+					let previousClipEndMs: number | null = null;
+					for (const job of mediaDecodeJobs) {
+						if (
+							previousClipEndMs === null
+								? job.clip.startMs > 0
+								: job.clip.startMs > previousClipEndMs + SOURCE_COPY_EPSILON
+						) {
+							const clipStartFrame = frameIndexForTimelineTime(
+								mediaTiming,
+								job.clip.startMs,
+								this.config.frameRate,
+							);
+							while (frameIndex < clipStartFrame && frameIndex < totalFrames) {
+								if (!renderer) throw new Error("Composite renderer is not initialized");
+								await renderer.renderBackgroundFrame(mediaBackgroundTimestampUs());
+								await encodeRenderedCanvas();
+							}
+						}
+						startWebcamDecode(job.trimRegions, job.speedRegions);
+						try {
+							await streamingDecoder.decodeAll(
+								this.config.frameRate,
+								job.trimRegions,
+								job.speedRegions,
+								async (videoFrame, _exportTimestampUs, sourceTimestampMs) => {
+									const timelineTimestampMs =
+										job.clip.startMs + sourceTimestampMs - job.clip.sourceStartMs;
+									await processDecodedVideoFrame(
+										videoFrame,
+										sourceTimestampMs,
+										timelineTimestampMs,
+										frameIndexForTimelineTime(
+											mediaTiming,
+											timelineTimestampMs,
+											this.config.frameRate,
+										),
+									);
+								},
+								onWarning,
+							);
+						} finally {
+							await finishWebcamDecode();
+						}
+						previousClipEndMs = Math.max(previousClipEndMs ?? 0, job.clip.endMs);
+					}
+				} else {
+					startWebcamDecode(this.config.trimRegions, this.config.speedRegions);
+					try {
+						await streamingDecoder.decodeAll(
+							this.config.frameRate,
+							this.config.trimRegions,
+							this.config.speedRegions,
+							async (videoFrame, exportTimestampUs, sourceTimestampMs) =>
+								processDecodedVideoFrame(
+									videoFrame,
+									sourceTimestampMs,
+									sourceTimestampMs,
+									frameIndexForExportTimestamp(exportTimestampUs, this.config.frameRate),
+								),
+							onWarning,
+						);
+					} finally {
+						await finishWebcamDecode();
+					}
+				}
+			}
+			while (
+				!usesCompositeRenderer &&
+				usesMediaTimeline &&
+				lastDirectVideoFrame &&
+				frameIndex < totalFrames &&
+				!this.cancelled
+			) {
+				await encodeDirectFrame(lastDirectVideoFrame, (frameIndex * 1000) / this.config.frameRate);
+			}
+			while (
+				usesCompositeRenderer &&
+				usesMediaTimeline &&
+				frameIndex < totalFrames &&
+				!this.cancelled
+			) {
+				if (!renderer) throw new Error("Composite renderer is not initialized");
+				const videoTimelineEndMs = Math.max(
+					0,
+					...(this.config.videoTrackClips ?? []).map((clip) => clip.endMs),
+				);
+				if (
+					shouldRenderMediaBackground(
+						Boolean(this.config.videoTrackHidden),
+						timelineMapper.durationMs,
+						videoTimelineEndMs,
+					)
+				) {
+					await renderer.renderBackgroundFrame(mediaBackgroundTimestampUs());
+				}
+				await encodeRenderedCanvas();
+			}
+			stageDurationsMs.video = performance.now() - videoStartedAt;
 
 			if (this.cancelled) {
 				return { success: false, error: "Export cancelled" };
@@ -434,10 +878,7 @@ export class VideoExporter {
 				throw this.fatalEncoderError;
 			}
 
-			stopWebcamDecode = true;
-			webcamFrameQueue?.destroy();
 			webcamDecoder?.cancel();
-			await webcamDecodePromise;
 
 			if (this.encoder && this.encoder.state === "configured") {
 				await this.withTimeout(
@@ -466,7 +907,15 @@ export class VideoExporter {
 			if (hasAudio && audioExportCodec && !this.cancelled) {
 				const demuxer = streamingDecoder.getDemuxer();
 				if (demuxer) {
+					this.reportProgress({
+						currentFrame: totalFrames,
+						totalFrames,
+						percentage: 100,
+						estimatedTimeRemaining: 0,
+						phase: "audio",
+					});
 					console.log("[VideoExporter] Processing audio track...");
+					const audioStartedAt = performance.now();
 					this.audioProcessor = new AudioProcessor();
 					await this.audioProcessor.process(
 						demuxer,
@@ -476,19 +925,188 @@ export class VideoExporter {
 						this.config.speedRegions,
 						videoInfo.duration,
 						audioExportCodec,
+						this.config.audioTrackClips,
+						audioTimelineDurationSec,
 					);
+					stageDurationsMs.audio = performance.now() - audioStartedAt;
 				}
 			}
 
+			const muxStartedAt = performance.now();
 			const blob = await muxer.finalize();
-			return { success: true, blob, warnings: warnings.length > 0 ? warnings : undefined };
+			stageDurationsMs.mux = performance.now() - muxStartedAt;
+			stageDurationsMs.total = performance.now() - exportStartedAt;
+			return {
+				success: true,
+				blob,
+				warnings: warnings.length > 0 ? warnings : undefined,
+				path: exportPlan.path,
+				diagnostics: {
+					frameCount: frameIndex,
+					frameRate: this.config.frameRate,
+					stageDurationsMs,
+				},
+			};
 		} finally {
 			stopWebcamDecode = true;
-			webcamFrameQueue?.destroy();
+			(webcamFrameQueue as TimestampedVideoFrameQueue | null)?.destroy();
 			webcamDecoder?.cancel();
+			(lastDirectVideoFrame as VideoFrame | null)?.close();
 			if (webcamDecodePromise) {
 				await webcamDecodePromise.catch(() => undefined);
 			}
+		}
+	}
+
+	private async tryPacketRemuxFastPath(
+		videoInfo: {
+			width: number;
+			height: number;
+			duration: number;
+			frameRate: number;
+			codec: string;
+			hasAudio: boolean;
+		},
+		stageDurationsMs: Record<string, number>,
+	): Promise<ExportResult | null> {
+		if (!/^(avc1|avc3|h264)/i.test(videoInfo.codec)) return null;
+		if (hasActiveSpeedRegions(this.config.speedRegions)) return null;
+		if (
+			this.config.audioTrackClips?.some(
+				(clip) => clip.muted || clip.gain !== 1 || isFileBackedAudioClip(clip),
+			)
+		) {
+			return null;
+		}
+		const clips = [...(this.config.videoTrackClips ?? [])].sort(
+			(left, right) => left.startMs - right.startMs,
+		);
+		if (clips.length === 0) return null;
+		const demuxer = this.streamingDecoder?.getDemuxer();
+		if (!demuxer) return null;
+
+		const frameToleranceUs = (1_000_000 / Math.max(1, videoInfo.frameRate)) * 0.55;
+		try {
+			for (const clip of clips) {
+				const sourceEndMs = clip.sourceStartMs + clip.endMs - clip.startMs;
+				const boundaries = [clip.sourceStartMs];
+				if (sourceEndMs < videoInfo.duration * 1000 - frameToleranceUs / 1000) {
+					boundaries.push(sourceEndMs);
+				}
+				for (const boundaryMs of boundaries) {
+					const boundary = await demuxer.seek("video", boundaryMs / 1000);
+					if (
+						boundary.type !== "key" ||
+						Math.abs(boundary.timestamp - boundaryMs * 1000) > frameToleranceUs
+					) {
+						return null;
+					}
+				}
+			}
+
+			const sourceConfig = await demuxer.getDecoderConfig("video");
+			const expectsAudio = shouldExportAudio(videoInfo.hasAudio, this.config.audioTrackClips);
+			const audioExportCodec = expectsAudio
+				? await AudioProcessor.selectSupportedExportCodecForSource(demuxer)
+				: null;
+			if (expectsAudio && !audioExportCodec) {
+				throw new Error("The source contains audio, but no safe audio export path is available.");
+			}
+			const muxer = new VideoMuxer(
+				this.config,
+				expectsAudio && Boolean(audioExportCodec),
+				audioExportCodec?.muxerCodec,
+			);
+			this.muxer = muxer;
+			await muxer.initialize();
+			const remuxStartedAt = performance.now();
+			let packetCount = 0;
+			let firstPacket = true;
+			for (const clip of clips) {
+				const sourceStartUs = clip.sourceStartMs * 1000;
+				const sourceEndUs = (clip.sourceStartMs + clip.endMs - clip.startMs) * 1000;
+				const reader = demuxer
+					.read("video", sourceStartUs / 1_000_000, sourceEndUs / 1_000_000)
+					.getReader();
+				try {
+					while (!this.cancelled) {
+						const { done, value: chunk } = await reader.read();
+						if (done || !chunk) break;
+						if (chunk.timestamp < sourceStartUs - frameToleranceUs) continue;
+						if (chunk.timestamp >= sourceEndUs - frameToleranceUs) break;
+						const data = new Uint8Array(chunk.byteLength);
+						chunk.copyTo(data);
+						const timestamp = clip.startMs * 1000 + (chunk.timestamp - sourceStartUs);
+						const rewritten = new EncodedVideoChunk({
+							type: chunk.type,
+							timestamp: Math.max(0, Math.round(timestamp)),
+							duration: chunk.duration ?? undefined,
+							data,
+						});
+						await muxer.addVideoChunk(
+							rewritten,
+							firstPacket ? { decoderConfig: sourceConfig } : undefined,
+						);
+						firstPacket = false;
+						packetCount++;
+					}
+				} finally {
+					await reader.cancel().catch(() => undefined);
+				}
+			}
+			if (packetCount === 0 || this.cancelled) return null;
+			stageDurationsMs.video = performance.now() - remuxStartedAt;
+
+			if (audioExportCodec) {
+				this.reportProgress({
+					currentFrame: packetCount,
+					totalFrames: packetCount,
+					percentage: 100,
+					estimatedTimeRemaining: 0,
+					phase: "audio",
+				});
+				const audioStartedAt = performance.now();
+				this.audioProcessor = new AudioProcessor();
+				const audioTimelineDurationSec = new TimelineMapper(
+					this.config.videoTrackClips ?? [],
+					this.config.audioTrackClips ?? [],
+					this.config.speedRegions ?? [],
+				).durationMs;
+				await this.audioProcessor.process(
+					demuxer,
+					muxer,
+					this.config.videoUrl,
+					this.config.trimRegions,
+					this.config.speedRegions,
+					videoInfo.duration,
+					audioExportCodec,
+					this.config.audioTrackClips,
+					audioTimelineDurationSec > 0 ? audioTimelineDurationSec / 1000 : videoInfo.duration,
+				);
+				stageDurationsMs.audio = performance.now() - audioStartedAt;
+			}
+			this.reportProgress({
+				currentFrame: packetCount,
+				totalFrames: packetCount,
+				percentage: 100,
+				estimatedTimeRemaining: 0,
+				phase: "finalizing",
+			});
+			const muxStartedAt = performance.now();
+			const blob = await muxer.finalize();
+			stageDurationsMs.mux = performance.now() - muxStartedAt;
+			console.info("[VideoExporter] using packet-remux path", { packetCount });
+			return {
+				success: true,
+				blob,
+				path: "packet-remux",
+				diagnostics: { frameCount: packetCount, frameRate: videoInfo.frameRate },
+			};
+		} catch (error) {
+			console.warn("[VideoExporter] packet-remux unavailable; using exact transcode", error);
+			this.muxer = null;
+			this.audioProcessor = null;
+			return null;
 		}
 	}
 
@@ -568,7 +1186,7 @@ export class VideoExporter {
 			height: this.config.height,
 			bitrate: this.config.bitrate,
 			framerate: this.config.frameRate,
-			latencyMode: "quality",
+			latencyMode: "realtime",
 			bitrateMode: "variable",
 			hardwareAcceleration,
 		};
@@ -659,7 +1277,11 @@ export class VideoExporter {
 		return ["prefer-hardware", "prefer-software"];
 	}
 
-	private async trySourceCopyFastPath(videoInfo: { width: number; height: number }) {
+	private async trySourceCopyFastPath(videoInfo: {
+		width: number;
+		height: number;
+		duration?: number;
+	}) {
 		const blockers = getSourceCopyFastPathBlockers(this.config, videoInfo);
 		if (blockers.length > 0) {
 			console.info("[VideoExporter] source-copy fast path disabled", {

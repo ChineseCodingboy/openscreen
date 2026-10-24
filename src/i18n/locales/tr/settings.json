@@ -8,7 +8,8 @@
 			"title": "Odak Modu",
 			"manual": "Manuel",
 			"auto": "Otomatik",
-			"autoDescription": "Kamera kaydedilen imleç konumunu takip eder"
+			"autoDescription": "Kamera kaydedilen imleç konumunu takip eder",
+			"lockedDisclaimer": "Zaman çizelgesindeki genel Otomatik Odak düğmesiyle denetlenir. Yakınlaştırma başına odak modu ayarlamak için kapatın."
 		},
 		"threeD": {
 			"title": "3D Döndürme",
@@ -68,7 +69,10 @@
 		"uploadCustom": "Özel Yükle",
 		"gradientLabel": "Gradyan {{index}}",
 		"colorWheel": "Renk çarkı",
-		"colorPalette": "Renk paleti"
+		"colorPalette": "Renk paleti",
+		"withBackground": "Arka planlı",
+		"noBackground": "Arka plansız",
+		"noBackgroundDescription": "Yalnızca kaydı kenardan kenara gösterir. Dışa aktarma önizlemeyle eşleşir."
 	},
 	"crop": {
 		"title": "Kırpma",
@@ -92,7 +96,8 @@
 		"title": "Dışa aktarma çözünürlüğü",
 		"low": "720p",
 		"medium": "1080p",
-		"high": "Source"
+		"high": "Original",
+		"source": "Source"
 	},
 	"gifSettings": {
 		"frameRate": "GIF Kare Hızı",
@@ -108,11 +113,6 @@
 		"videoButton": "Videoyu Dışa Aktar",
 		"gifButton": "GIF Olarak Dışa Aktar",
 		"chooseSaveLocation": "Kayıt Konumu Seç"
-	},
-	"support": {
-		"reportBug": "Hata Bildir",
-		"saveDiagnostics": "Teşhis Verilerini Kaydet",
-		"starOnGithub": "GitHub'da Yıldızla"
 	},
 	"imageUpload": {
 		"invalidFileType": "Geçersiz dosya türü",
@@ -132,8 +132,6 @@
 		"textPlaceholder": "Metninizi girin...",
 		"fontStyle": "Yazı Tipi Stili",
 		"selectStyle": "Stil seçin",
-		"textAnimation": "Metin Animasyonu",
-		"selectAnimation": "Animasyon seçin",
 		"size": "Boyut",
 		"customFonts": "Özel Yazı Tipleri",
 		"textColor": "Metin Rengi",
@@ -207,7 +205,10 @@
 		"smoothing": "Yumuşatma",
 		"motionBlur": "Hareket Bulanıklığı",
 		"clickBounce": "Tıklama Sıçraması",
-		"clipToBounds": "Tuvale Kırp"
+		"clipToBounds": "Tuvale Kırp",
+		"smartMotion": "Akıllı hareket",
+		"smartMotionDescription": "Önemli durakları ve etkileşimleri korur, yanlış sapmaları yumuşak ve doğrudan bir yolla değiştirir.",
+		"clipToBoundsDescription": "İmleci video karesinin içinde tutar. İmlecin kenarları aşmasına izin vermek için kapatın - yakınlaştırma veya kaydırmada kullanışlıdır."
 	},
 	"language": {
 		"title": "Dil"
@@ -215,5 +216,16 @@
 	"timeline": {
 		"title": "Zaman Tüneli",
 		"waveform": "Kırpma Parçasında Ses Dalgasını Göster"
+	},
+	"textAnimation": {
+		"title": "Metin animasyonu",
+		"selectAnimation": "Animasyon seç",
+		"none": "Yok",
+		"fade": "Solma",
+		"rise": "Yükselme",
+		"pop": "Pop",
+		"slideLeft": "Sola kaydır",
+		"typewriter": "Daktilo",
+		"pulse": "Nabız"
 	}
 }

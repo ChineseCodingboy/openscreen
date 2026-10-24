@@ -16,6 +16,7 @@
 	"registrationFailed": "Failed to register shortcut. It may be in use by another app. Try a different key.",
 	"actions": {
 		"openApp": "Open App",
+		"summonHud": "Show Recording Bar",
 		"addZoom": "Add Zoom",
 		"addTrim": "Add Trim",
 		"addSpeed": "Add Speed",
@@ -31,8 +32,6 @@
 		"cycleAnnotationsForward": "Cycle Annotations Forward",
 		"cycleAnnotationsBackward": "Cycle Annotations Backward",
 		"deleteSelectedAlt": "Delete Selected (alt)",
-		"panTimeline": "Pan Timeline",
-		"zoomTimeline": "Zoom Timeline",
 		"frameBack": "Frame Back",
 		"frameForward": "Frame Forward"
 	}

@@ -114,6 +114,10 @@ for ARCH in "${ARCHS[@]}"; do
     echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
     # ── Package with electron-builder ─────────────────────────────
+    print_step "[${ARCH}] Building native macOS helpers..."
+    OPENSCREEN_MAC_HELPER_ARCHS="${ARCH}" npm run build:native:mac
+    print_ok "[${ARCH}] Native helpers built"
+
     print_step "[${ARCH}] Packaging with electron-builder..."
 
     # Build .app only (--dir), electron-builder handles codesigning

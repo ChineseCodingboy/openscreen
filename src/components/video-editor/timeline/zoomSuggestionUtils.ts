@@ -1,10 +1,19 @@
 import type { CursorTelemetryPoint, ZoomFocus } from "../types";
+import {
+	AUTO_ZOOM_ARRIVAL_AFTER_TRIGGER_MS,
+	AUTO_ZOOM_IN_DURATION_MS,
+	AUTO_ZOOM_MAX_PER_MINUTE,
+	AUTO_ZOOM_MIN_SPACING_MS,
+	AUTO_ZOOM_OUT_DURATION_MS,
+	AUTO_ZOOM_PRE_ROLL_MS,
+	type AutoZoomTriggerType,
+} from "./semanticZoomSuggestions";
 
 export const MIN_DWELL_DURATION_MS = 450;
 export const MAX_DWELL_DURATION_MS = 2600;
 export const DWELL_MOVE_THRESHOLD = 0.02;
 /** Minimum spacing between two accepted suggestion centres. */
-export const SUGGESTION_SPACING_MS = 1800;
+export const SUGGESTION_SPACING_MS = AUTO_ZOOM_MIN_SPACING_MS;
 
 export interface ZoomDwellCandidate {
 	centerTimeMs: number;
@@ -85,6 +94,12 @@ export function detectZoomDwellCandidates(samples: CursorTelemetryPoint[]): Zoom
 export interface AutoZoomSuggestion {
 	span: { start: number; end: number };
 	focus: ZoomFocus;
+	zoomInDurationMs: number;
+	zoomOutDurationMs: number;
+	triggerTimeMs: number;
+	triggerType: AutoZoomTriggerType;
+	confidence: number;
+	dragEndFocus?: ZoomFocus;
 }
 
 /**
@@ -103,7 +118,7 @@ export function buildAutoZoomSuggestions(options: {
 		return [];
 	}
 
-	const defaultDuration = Math.min(defaultDurationMs, totalMs);
+	const defaultDuration = Math.min(Math.max(1400, Math.min(2380, defaultDurationMs)), totalMs);
 	if (defaultDuration <= 0) {
 		return [];
 	}
@@ -133,10 +148,18 @@ export function buildAutoZoomSuggestions(options: {
 		if (tooCloseToAccepted) {
 			continue;
 		}
+		const rollingTimes = [...acceptedCenters, candidate.centerTimeMs].sort((a, b) => a - b);
+		let exceedsMinuteBudget = false;
+		for (let index = 0; index + AUTO_ZOOM_MAX_PER_MINUTE < rollingTimes.length; index += 1) {
+			if (rollingTimes[index + AUTO_ZOOM_MAX_PER_MINUTE] - rollingTimes[index] < 60_000) {
+				exceedsMinuteBudget = true;
+				break;
+			}
+		}
+		if (exceedsMinuteBudget) continue;
 
-		const centeredStart = Math.round(candidate.centerTimeMs - defaultDuration / 2);
-		const candidateStart = Math.max(0, Math.min(centeredStart, totalMs - defaultDuration));
-		const candidateEnd = candidateStart + defaultDuration;
+		const candidateStart = Math.max(0, Math.round(candidate.centerTimeMs - AUTO_ZOOM_PRE_ROLL_MS));
+		const candidateEnd = Math.min(totalMs, candidateStart + defaultDuration);
 		const hasOverlap = reservedSpans.some(
 			(span) => candidateEnd > span.start && candidateStart < span.end,
 		);
@@ -149,6 +172,17 @@ export function buildAutoZoomSuggestions(options: {
 		suggestions.push({
 			span: { start: candidateStart, end: candidateEnd },
 			focus: candidate.focus,
+			zoomInDurationMs: Math.max(
+				1,
+				Math.min(
+					AUTO_ZOOM_IN_DURATION_MS,
+					candidate.centerTimeMs + AUTO_ZOOM_ARRIVAL_AFTER_TRIGGER_MS - candidateStart,
+				),
+			),
+			zoomOutDurationMs: Math.min(AUTO_ZOOM_OUT_DURATION_MS, Math.max(1, totalMs - candidateEnd)),
+			triggerTimeMs: candidate.centerTimeMs,
+			triggerType: "dwell",
+			confidence: 0.36,
 		});
 	}
 

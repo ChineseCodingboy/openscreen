@@ -47,7 +47,8 @@
 	"autoCaptions": {
 		"button": "Subtítulos automáticos",
 		"dialogTitle": "Subtítulos automáticos",
-		"dialogDescription": "Elige aproximadamente cuántas palabras muestra cada subtítulo a la vez. El tiempo se reparte entre las palabras de esa frase.",
+		"dialogDescription": "Los subtítulos se dividen automáticamente en frases naturales y legibles.",
+		"adaptiveHint": "No hace falta configurar palabras. Las pausas, la puntuación, el ritmo y el ancho del texto se equilibran automáticamente.",
 		"minWords": "Número mínimo de palabras por subtítulo",
 		"maxWords": "Número máximo de palabras por subtítulo",
 		"wordsCount": "{{count}} palabras",
@@ -63,6 +64,42 @@
 		"failed": "No se pudieron generar los subtítulos.",
 		"truncated": "Solo se transcribieron los primeros {{minutes}} minutos."
 	},
+	"voiceover": {
+		"dialogTitle": "Voz en off con IA",
+		"dialogDescription": "Lee la transcripción con una voz clara y estándar y reemplaza la pista de audio original.",
+		"tabCaptions": "Subtítulos",
+		"tabVoiceover": "Voz en off IA",
+		"voice": "Voz",
+		"style": "Estilo",
+		"styles": {
+			"sleek": "Elegante y premium",
+			"energetic": "Enérgico",
+			"broadcast": "Locución",
+			"conversational": "Conversacional"
+		},
+		"polish": "Pulir la transcripción (quitar muletillas)",
+		"replaceOriginal": "Reemplazar el audio original (silenciarlo)",
+		"hint": "Los subtítulos de la línea de tiempo son el guion: edita su texto primero para cambiar lo que se dice. Sin subtítulos, la voz se transcribe automáticamente.",
+		"generate": "Generar voz en off",
+		"regenerate": "Regenerar voz en off",
+		"remove": "Quitar voz en off",
+		"transcribing": "Transcribiendo la voz…",
+		"synthesizing": "Sintetizando voz {{done}}/{{total}}…",
+		"saving": "Guardando la pista de audio…",
+		"done": "Voz en off añadida a la línea de tiempo.",
+		"compressedNote": "{{count}} frases se aceleraron ligeramente para ajustarse al tiempo.",
+		"removed": "Voz en off eliminada y audio original restaurado.",
+		"failed": "No se pudo generar la voz en off.",
+		"busy": "La voz en off ya se está generando.",
+		"quality": "Calidad",
+		"qualityHd": "Alta fidelidad",
+		"qualityStandard": "Estándar (más barato)",
+		"targetLanguage": "Idioma de destino",
+		"sourceLanguage": "Idioma original (sin traducir)",
+		"syncCaptions": "Traducir también los subtítulos de la línea de tiempo",
+		"translating": "Traduciendo el guion…",
+		"hdCostHint": "La alta fidelidad usa los modelos gpt-audio (≈$0,1–0,2 por minuto de audio)."
+	},
 	"emptyState": {
 		"title": "No hay proyecto abierto",
 		"description": "Importa un video para empezar a editar o carga un proyecto de OpenScreen existente.",
@@ -77,5 +114,26 @@
 			"couldNotOpenTitle": "No se pudo abrir el archivo",
 			"couldNotOpenMessage": "No se pudo abrir el archivo de proyecto. El video al que hace referencia puede haber sido movido o eliminado."
 		}
+	},
+	"background": {
+		"withBackground": "Background",
+		"noBackground": "No background",
+		"noBackgroundDescription": "Show only the recorded page edge-to-edge. Export will match the preview."
+	},
+	"mediaLibrary": {
+		"title": "Media Library",
+		"subtitle": "Your recordings and saved projects",
+		"back": "Back to editor",
+		"refresh": "Refresh",
+		"openFromComputer": "Open from computer",
+		"loading": "Loading library…",
+		"loadError": "Could not load the media library.",
+		"retry": "Try again",
+		"emptyTitle": "No recordings yet",
+		"emptyDescription": "Start a recording or open a video from your computer.",
+		"newRecording": "New recording",
+		"project": "Project",
+		"recording": "Recording",
+		"edited": "Project saved"
 	}
 }

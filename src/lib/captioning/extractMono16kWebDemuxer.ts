@@ -1,4 +1,4 @@
-import { WebDemuxer } from "web-demuxer";
+import { AVMediaType, WebDemuxer } from "web-demuxer";
 
 import { MAX_CAPTION_AUDIO_SEC } from "./captionConstants";
 
@@ -7,7 +7,10 @@ const SOURCE_LOAD_TIMEOUT_MS = 60_000;
 const READ_END_PADDING_SEC = 0.5;
 
 function webDemuxerWasmUrl(): string {
-	return new URL("../exporter/wasm/web-demuxer.wasm", window.location.href).href;
+	// Vite emits this file at dist/wasm/web-demuxer.wasm. Resolve from the
+	// application root so both the dev server and packaged file:// builds use
+	// the same URL.
+	return new URL("wasm/web-demuxer.wasm", window.location.href).href;
 }
 
 function audioDataFrameToMono(frame: AudioData): Float32Array {
@@ -114,12 +117,17 @@ export async function extractMonoPcmViaWebDemuxer(
 	const reportedDurationSec =
 		Number.isFinite(mediaInfo.duration) && mediaInfo.duration > 0 ? mediaInfo.duration : 0;
 
-	let audioConfig: AudioDecoderConfig;
-	try {
-		audioConfig = await demuxer.getDecoderConfig("audio");
-	} catch {
-		throw new Error("No audio track found in this video.");
-	}
+	const audioStreams = mediaInfo.streams.filter((stream) => stream.codec_type_string === "audio");
+	const selectedStream = audioStreams.reduce<(typeof audioStreams)[number] | null>(
+		(best, stream) => {
+			const bitrate = Number.parseInt(stream.bit_rate || "0", 10) || 0;
+			const bestBitrate = Number.parseInt(best?.bit_rate || "0", 10) || 0;
+			return !best || bitrate > bestBitrate ? stream : best;
+		},
+		null,
+	);
+	if (!selectedStream) throw new Error("No audio track found in this video.");
+	const audioConfig = demuxer.genDecoderConfig("audio", selectedStream);
 
 	const codecCheck = await AudioDecoder.isConfigSupported(audioConfig);
 	if (!codecCheck.supported) {
@@ -140,12 +148,14 @@ export async function extractMonoPcmViaWebDemuxer(
 	});
 	decoder.configure(audioConfig);
 
-	const reader = demuxer.read("audio", 0, readEndSec).getReader();
+	const reader = demuxer
+		.readAVPacket(0, readEndSec, AVMediaType.AVMEDIA_TYPE_AUDIO, selectedStream.index)
+		.getReader();
 	try {
 		while (!signal?.aborted) {
-			const { done, value: chunk } = await reader.read();
-			if (done || !chunk) break;
-			decoder.decode(chunk);
+			const { done, value: packet } = await reader.read();
+			if (done || !packet) break;
+			decoder.decode(demuxer.genEncodedChunk("audio", packet));
 			while (decoder.decodeQueueSize > DECODE_QUEUE_BACKPRESSURE && !signal?.aborted) {
 				await new Promise((r) => setTimeout(r, 1));
 			}

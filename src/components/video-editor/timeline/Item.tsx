@@ -1,6 +1,16 @@
 import type { Span } from "dnd-timeline";
 import { useItem } from "dnd-timeline";
-import { Gauge, MessageSquare, MousePointer2, Scissors, ZoomIn } from "lucide-react";
+import {
+	AudioLines,
+	Film,
+	Gauge,
+	MessageSquare,
+	Mic,
+	MonitorSpeaker,
+	MousePointer2,
+	Scissors,
+	ZoomIn,
+} from "lucide-react";
 import { useMemo } from "react";
 import { useScopedT } from "@/contexts/I18nContext";
 import { cn } from "@/lib/utils";
@@ -12,12 +22,22 @@ interface ItemProps {
 	rowId: string;
 	children: React.ReactNode;
 	isSelected?: boolean;
-	onSelect?: () => void;
+	isCutTarget?: boolean;
+	onSelect?: (event: React.PointerEvent<HTMLDivElement>) => void;
 	zoomDepth?: number;
 	zoomCustomScale?: number;
 	speedValue?: number;
 	isAutoFocus?: boolean;
-	variant?: "zoom" | "trim" | "annotation" | "speed" | "blur";
+	variant?:
+		| "video"
+		| "zoom"
+		| "trim"
+		| "annotation"
+		| "speed"
+		| "blur"
+		| "mixed-audio"
+		| "system-audio"
+		| "microphone-audio";
 }
 
 // Map zoom depth to multiplier labels
@@ -45,6 +65,7 @@ export default function Item({
 	span,
 	rowId,
 	isSelected = false,
+	isCutTarget = false,
 	onSelect,
 	zoomDepth = 1,
 	zoomCustomScale,
@@ -61,8 +82,12 @@ export default function Item({
 	});
 
 	const isZoom = variant === "zoom";
+	const isVideo = variant === "video";
 	const isTrim = variant === "trim";
 	const isSpeed = variant === "speed";
+	const isSystemAudio = variant === "system-audio";
+	const isMicrophoneAudio = variant === "microphone-audio";
+	const isMixedAudio = variant === "mixed-audio";
 
 	const glassClass = isZoom
 		? glassStyles.glassGreen
@@ -70,9 +95,31 @@ export default function Item({
 			? glassStyles.glassRed
 			: isSpeed
 				? glassStyles.glassAmber
-				: glassStyles.glassYellow;
+				: isVideo
+					? glassStyles.glassSlate
+					: isMixedAudio
+						? glassStyles.glassAudio
+						: isSystemAudio
+							? glassStyles.glassBlue
+							: isMicrophoneAudio
+								? glassStyles.glassPurple
+								: glassStyles.glassYellow;
 
-	const endCapColor = isZoom ? "#21916A" : isTrim ? "#ef4444" : isSpeed ? "#d97706" : "#B4A046";
+	const endCapColor = isZoom
+		? "#21916A"
+		: isTrim
+			? "#ef4444"
+			: isSpeed
+				? "#d97706"
+				: isVideo
+					? "#64748b"
+					: isMixedAudio
+						? "#0f9f8f"
+						: isSystemAudio
+							? "#2878d4"
+							: isMicrophoneAudio
+								? "#9c5be8"
+								: "#B4A046";
 
 	const timeLabel = useMemo(
 		() => `${formatMs(span.start)} – ${formatMs(span.end)}`,
@@ -87,10 +134,11 @@ export default function Item({
 	return (
 		<div
 			ref={setNodeRef}
+			data-timeline-item-id={id}
 			style={safeItemStyle}
 			{...listeners}
 			{...attributes}
-			onPointerDownCapture={() => onSelect?.()}
+			onPointerDownCapture={(event) => onSelect?.(event)}
 			className="group"
 		>
 			<div style={{ ...itemContentStyle, minWidth: 24 }}>
@@ -99,11 +147,11 @@ export default function Item({
 						glassClass,
 						"w-full h-full overflow-hidden flex items-center justify-center gap-1.5 cursor-grab active:cursor-grabbing relative",
 						isSelected && glassStyles.selected,
+						isCutTarget && "ring-1 ring-inset ring-red-400/80 brightness-110",
 					)}
 					style={{ height: 30, color: "#fff", minWidth: 24 }}
 					onClick={(event) => {
 						event.stopPropagation();
-						onSelect?.();
 					}}
 				>
 					<div
@@ -111,8 +159,6 @@ export default function Item({
 						style={{
 							cursor: "col-resize",
 							pointerEvents: "auto",
-							width: 8,
-							opacity: 0.9,
 							background: endCapColor,
 						}}
 						title="Resize left"
@@ -122,8 +168,6 @@ export default function Item({
 						style={{
 							cursor: "col-resize",
 							pointerEvents: "auto",
-							width: 8,
-							opacity: 0.9,
 							background: endCapColor,
 						}}
 						title="Resize right"
@@ -158,6 +202,34 @@ export default function Item({
 									<Gauge className="w-3.5 h-3.5 shrink-0" />
 									<span className="text-[11px] font-semibold whitespace-nowrap">
 										{speedValue !== undefined ? `${speedValue}×` : t("labels.speed")}
+									</span>
+								</>
+							) : isVideo ? (
+								<>
+									<Film className="w-3.5 h-3.5 shrink-0" />
+									<span className="text-[11px] font-semibold truncate whitespace-nowrap">
+										{children}
+									</span>
+								</>
+							) : isMixedAudio ? (
+								<>
+									<AudioLines className="w-3.5 h-3.5 shrink-0" />
+									<span className="text-[11px] font-semibold truncate whitespace-nowrap">
+										{children}
+									</span>
+								</>
+							) : isSystemAudio ? (
+								<>
+									<MonitorSpeaker className="w-3.5 h-3.5 shrink-0" />
+									<span className="text-[11px] font-semibold truncate whitespace-nowrap">
+										{children}
+									</span>
+								</>
+							) : isMicrophoneAudio ? (
+								<>
+									<Mic className="w-3.5 h-3.5 shrink-0" />
+									<span className="text-[11px] font-semibold truncate whitespace-nowrap">
+										{children}
 									</span>
 								</>
 							) : (

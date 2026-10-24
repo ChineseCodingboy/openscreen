@@ -1,5 +1,3 @@
-import { spring } from "motion";
-
 export interface SpringState {
 	value: number;
 	velocity: number;
@@ -67,22 +65,55 @@ export function stepSpringValue(
 		return state.value;
 	}
 
-	const previousValue = state.value;
-	const generator = spring({
-		keyframes: [state.value, target],
-		velocity: state.velocity,
-		stiffness: config.stiffness,
-		damping: config.damping,
-		mass: config.mass,
-		restDelta,
-		restSpeed,
-	});
+	// Solve the damped oscillator exactly for a constant target over this frame. This keeps the
+	// persistent value/velocity semantics of Motion's spring without allocating a generator and
+	// keyframe array for every axis on every animation frame.
+	const mass = Math.max(0.0001, config.mass);
+	const stiffness = Math.max(0, config.stiffness);
+	const damping = Math.max(0, config.damping);
+	const elapsedSeconds = safeDeltaMs / 1000;
+	const displacement = state.value - target;
+	const initialVelocity = state.velocity;
+	const alpha = damping / (2 * mass);
+	const naturalFrequencySquared = stiffness / mass;
+	const discriminant = alpha * alpha - naturalFrequencySquared;
 
-	const result = generator.next(safeDeltaMs);
-	state.value = result.done ? target : result.value;
-	state.velocity = ((state.value - previousValue) / safeDeltaMs) * 1000;
+	let nextDisplacement: number;
+	let nextVelocity: number;
+	if (Math.abs(discriminant) < 1e-7) {
+		const coefficient = initialVelocity + alpha * displacement;
+		const decay = Math.exp(-alpha * elapsedSeconds);
+		nextDisplacement = (displacement + coefficient * elapsedSeconds) * decay;
+		nextVelocity = (initialVelocity - alpha * coefficient * elapsedSeconds) * decay;
+	} else if (discriminant < 0) {
+		const angularFrequency = Math.sqrt(-discriminant);
+		const phaseCoefficient = (initialVelocity + alpha * displacement) / angularFrequency;
+		const angle = angularFrequency * elapsedSeconds;
+		const cosine = Math.cos(angle);
+		const sine = Math.sin(angle);
+		const decay = Math.exp(-alpha * elapsedSeconds);
+		nextDisplacement = decay * (displacement * cosine + phaseCoefficient * sine);
+		nextVelocity =
+			decay *
+			(initialVelocity * cosine -
+				((alpha * initialVelocity + naturalFrequencySquared * displacement) / angularFrequency) *
+					sine);
+	} else {
+		const root = Math.sqrt(discriminant);
+		const slowRoot = -alpha + root;
+		const fastRoot = -alpha - root;
+		const slowCoefficient = (initialVelocity - fastRoot * displacement) / (slowRoot - fastRoot);
+		const fastCoefficient = displacement - slowCoefficient;
+		const slowDecay = Math.exp(slowRoot * elapsedSeconds);
+		const fastDecay = Math.exp(fastRoot * elapsedSeconds);
+		nextDisplacement = slowCoefficient * slowDecay + fastCoefficient * fastDecay;
+		nextVelocity = slowRoot * slowCoefficient * slowDecay + fastRoot * fastCoefficient * fastDecay;
+	}
 
-	if (result.done) {
+	state.value = target + nextDisplacement;
+	state.velocity = nextVelocity;
+	if (Math.abs(target - state.value) <= restDelta && Math.abs(state.velocity) <= restSpeed) {
+		state.value = target;
 		state.velocity = 0;
 	}
 

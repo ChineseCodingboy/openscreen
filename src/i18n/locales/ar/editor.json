@@ -47,7 +47,8 @@
 	"autoCaptions": {
 		"button": "التسميات التوضيحية التلقائية",
 		"dialogTitle": "التسميات التوضيحية التلقائية",
-		"dialogDescription": "اختر تقريبا كم عدد الكلمات التي تظهر في كل تسمية توضيحية. يتم توزيع التوقيت عبر الكلمات في تلك العبارة.",
+		"dialogDescription": "تُقسّم الترجمة تلقائيًا إلى عبارات طبيعية وسهلة القراءة.",
+		"adaptiveHint": "لا حاجة لتحديد عدد الكلمات. تتم موازنة الوقفات وعلامات الترقيم وسرعة الكلام وعرض النص تلقائيًا.",
 		"minWords": "الحد الأدنى من الكلمات لكل تسمية",
 		"maxWords": "الحد الأقصى من الكلمات لكل تسمية",
 		"wordsCount": "{{count}} كلمة",
@@ -63,6 +64,42 @@
 		"failed": "تعذّر توليد التسميات.",
 		"truncated": "تم نسخ الدقائق الأولى فقط: {{minutes}} دقيقة."
 	},
+	"voiceover": {
+		"dialogTitle": "تعليق صوتي بالذكاء الاصطناعي",
+		"dialogDescription": "يقرأ النص المفرَّغ بصوت واضح وقياسي ويستبدل مسار الصوت الأصلي.",
+		"tabCaptions": "الترجمات",
+		"tabVoiceover": "تعليق صوتي AI",
+		"voice": "الصوت",
+		"style": "الأسلوب",
+		"styles": {
+			"sleek": "أنيق وفاخر",
+			"energetic": "حيوي",
+			"broadcast": "إذاعي",
+			"conversational": "حواري طبيعي"
+		},
+		"polish": "تحسين النص (إزالة الحشو اللفظي)",
+		"replaceOriginal": "استبدال الصوت الأصلي (كتمه)",
+		"hint": "الترجمات على الخط الزمني هي النص: عدّل نصها أولًا لتغيير ما يُقال. من دون ترجمات، يُفرَّغ الكلام تلقائيًا.",
+		"generate": "إنشاء التعليق الصوتي",
+		"regenerate": "إعادة إنشاء التعليق الصوتي",
+		"remove": "إزالة التعليق الصوتي",
+		"transcribing": "جارٍ تفريغ الكلام…",
+		"synthesizing": "جارٍ توليد الصوت {{done}}/{{total}}…",
+		"saving": "جارٍ حفظ مسار الصوت…",
+		"done": "أُضيف التعليق الصوتي إلى الخط الزمني.",
+		"compressedNote": "تم تسريع {{count}} جملة قليلًا لتناسب التوقيت.",
+		"removed": "أُزيل التعليق الصوتي واستُعيد الصوت الأصلي.",
+		"failed": "تعذّر إنشاء التعليق الصوتي.",
+		"busy": "يجري إنشاء التعليق الصوتي بالفعل.",
+		"quality": "الجودة",
+		"qualityHd": "دقة عالية",
+		"qualityStandard": "قياسي (أرخص)",
+		"targetLanguage": "اللغة الهدف",
+		"sourceLanguage": "اللغة الأصلية (بدون ترجمة)",
+		"syncCaptions": "ترجمة ترجمات الخط الزمني أيضًا",
+		"translating": "جارٍ ترجمة النص…",
+		"hdCostHint": "تستخدم الدقة العالية نماذج gpt-audio (نحو 0.1–0.2 دولار لكل دقيقة صوت)."
+	},
 	"emptyState": {
 		"title": "لا يوجد مشروع مفتوح",
 		"description": "استورد مقطع فيديو للبدء في التحرير، أو حمّل مشروع OpenScreen موجود.",
@@ -77,5 +114,26 @@
 			"couldNotOpenTitle": "تعذّر فتح الملف",
 			"couldNotOpenMessage": "تعذّر فتح ملف المشروع. ربما تم نقل الفيديو المرجعي أو حذفه."
 		}
+	},
+	"background": {
+		"withBackground": "Background",
+		"noBackground": "No background",
+		"noBackgroundDescription": "Show only the recorded page edge-to-edge. Export will match the preview."
+	},
+	"mediaLibrary": {
+		"title": "Media Library",
+		"subtitle": "Your recordings and saved projects",
+		"back": "Back to editor",
+		"refresh": "Refresh",
+		"openFromComputer": "Open from computer",
+		"loading": "Loading library…",
+		"loadError": "Could not load the media library.",
+		"retry": "Try again",
+		"emptyTitle": "No recordings yet",
+		"emptyDescription": "Start a recording or open a video from your computer.",
+		"newRecording": "New recording",
+		"project": "Project",
+		"recording": "Recording",
+		"edited": "Project saved"
 	}
 }

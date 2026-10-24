@@ -16,6 +16,7 @@
 	"registrationFailed": "Không thể đăng ký phím tắt. Có thể đang được sử dụng bởi ứng dụng khác. Hãy thử phím khác.",
 	"actions": {
 		"openApp": "Mở ứng dụng",
+		"summonHud": "Hiện thanh ghi hình",
 		"addZoom": "Thêm Thu phóng",
 		"addTrim": "Thêm Cắt",
 		"addSpeed": "Thêm Tốc độ",
@@ -31,8 +32,6 @@
 		"cycleAnnotationsForward": "Chuyển tiếp qua các chú thích",
 		"cycleAnnotationsBackward": "Chuyển lùi qua các chú thích",
 		"deleteSelectedAlt": "Xóa mục đã chọn (alt)",
-		"panTimeline": "Xoay Trục thời gian",
-		"zoomTimeline": "Thu phóng Trục thời gian",
 		"frameBack": "Lùi một khung hình",
 		"frameForward": "Tiến một khung hình"
 	}

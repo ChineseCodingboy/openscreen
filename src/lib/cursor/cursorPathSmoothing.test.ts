@@ -103,6 +103,37 @@ describe("cursor path smoothing", () => {
 		}
 	});
 
+	it("resamples long recordings with linear source traversal", () => {
+		let timeReads = 0;
+		const samples: CursorRecordingSample[] = Array.from({ length: 2000 }, (_, index) => ({
+			get timeMs() {
+				timeReads++;
+				return index * 30;
+			},
+			cx: index / 2000,
+			cy: 0.5,
+			visible: true,
+		}));
+
+		const path = getSmoothedCursorPath(makeRecording(samples), 0.67)!;
+		expect(path.sampleAt(30_000)).not.toBeNull();
+		// A per-output binary search is acceptable, but rebuilding/mapping all 2k source times for
+		// every 240 Hz target would cause tens of millions of reads here.
+		expect(timeReads).toBeLessThan(120_000);
+	});
+
+	it("bounds cached smoothing strengths per recording", () => {
+		const data = makeRecording([
+			{ timeMs: 0, cx: 0.1, cy: 0.1, visible: true },
+			{ timeMs: 100, cx: 0.9, cy: 0.9, visible: true },
+		]);
+		const first = getSmoothedCursorPath(data, 0.1);
+		for (const strength of [0.2, 0.3, 0.4, 0.5]) {
+			getSmoothedCursorPath(data, strength);
+		}
+		expect(getSmoothedCursorPath(data, 0.1)).not.toBe(first);
+	});
+
 	it("returns null when there is no cursor data", () => {
 		expect(getSmoothedCursorPath(null, 0.5)).toBeNull();
 		expect(getSmoothedCursorPath(makeRecording([]), 0.5)).toBeNull();

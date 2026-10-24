@@ -12,6 +12,12 @@ const ZOOM_IN_OVERLAP_MS = 500;
 type DominantRegionOptions = {
 	connectZooms?: boolean;
 	cursorTelemetry?: CursorTelemetryPoint[];
+	/** Optional processed cursor path shared with the visible cursor renderer. */
+	cursorFocusSampler?: (timeMs: number) => ZoomFocus | null;
+	/** Stable identity of the sampler's underlying path, used to invalidate paused-frame caches. */
+	cursorFocusSamplerKey?: unknown;
+	/** Source-media time used to sample cursor-driven focus; defaults to timeline `timeMs`. */
+	cursorTimeMs?: number;
 	viewportRatio?: ViewportRatio;
 };
 
@@ -20,6 +26,12 @@ type ConnectedRegionPair = {
 	nextRegion: ZoomRegion;
 	transitionStart: number;
 	transitionEnd: number;
+};
+
+type ConnectedRegionIndex = {
+	pairs: ConnectedRegionPair[];
+	outgoingByRegion: WeakMap<ZoomRegion, ConnectedRegionPair>;
+	incomingByRegion: WeakMap<ZoomRegion, ConnectedRegionPair>;
 };
 
 type ConnectedPanTransition = {
@@ -38,7 +50,49 @@ function easeConnectedPan(value: number) {
 	return cubicBezier(0.1, 0.0, 0.2, 1.0, value);
 }
 
+/** Quintic smoothstep has zero velocity and acceleration at both ends. */
+export function professionalSmoothstep(value: number) {
+	const t = clamp01(value);
+	return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
 export function computeRegionStrength(region: ZoomRegion, timeMs: number) {
+	if (region.motionProfile === "professional-v2") {
+		const zoomInDurationMs = Math.max(1, region.zoomInDurationMs ?? 500);
+		const zoomOutDurationMs = Math.max(1, region.zoomOutDurationMs ?? 620);
+		const zoomInEnd = region.startMs + zoomInDurationMs;
+		const zoomOutEnd = region.endMs + zoomOutDurationMs;
+		if (timeMs < region.startMs || timeMs > zoomOutEnd) return 0;
+		if (timeMs < zoomInEnd) {
+			return professionalSmoothstep((timeMs - region.startMs) / zoomInDurationMs);
+		}
+		if (timeMs <= region.endMs) return 1;
+		return 1 - professionalSmoothstep((timeMs - region.endMs) / zoomOutDurationMs);
+	}
+	if (Number.isFinite(region.zoomInDurationMs) && (region.zoomInDurationMs ?? 0) > 0) {
+		const zoomInDurationMs = Math.min(
+			Math.max(1, region.zoomInDurationMs ?? 1),
+			Math.max(1, region.endMs - region.startMs),
+		);
+		const zoomInEnd = region.startMs + zoomInDurationMs;
+		const leadOutEnd = region.endMs + TRANSITION_WINDOW_MS;
+
+		if (timeMs < region.startMs || timeMs > leadOutEnd) {
+			return 0;
+		}
+
+		if (timeMs < zoomInEnd) {
+			return easeOutScreenStudio((timeMs - region.startMs) / zoomInDurationMs);
+		}
+
+		if (timeMs <= region.endMs) {
+			return 1;
+		}
+
+		const progress = clamp01((timeMs - region.endMs) / TRANSITION_WINDOW_MS);
+		return 1 - easeOutScreenStudio(progress);
+	}
+
 	const zoomInEnd = region.startMs + ZOOM_IN_OVERLAP_MS;
 	const leadInStart = zoomInEnd - ZOOM_IN_TRANSITION_WINDOW_MS;
 	const leadOutEnd = region.endMs + TRANSITION_WINDOW_MS;
@@ -77,92 +131,130 @@ function getResolvedFocus(
 	zoomScale: number,
 	timeMs?: number,
 	cursorTelemetry?: CursorTelemetryPoint[],
+	cursorFocusSampler?: (timeMs: number) => ZoomFocus | null,
 	viewportRatio?: ViewportRatio,
 ): ZoomFocus {
 	let focus = region.focus;
-
 	if (
-		region.focusMode === "auto" &&
-		cursorTelemetry &&
-		cursorTelemetry.length > 0 &&
+		region.motionProfile === "professional-v2" &&
+		region.focusEnd &&
+		region.triggerTimeMs !== undefined &&
 		timeMs !== undefined
 	) {
-		const cursorFocus = interpolateCursorAt(cursorTelemetry, timeMs);
+		const panStart = region.triggerTimeMs + 80;
+		const panProgress = professionalSmoothstep(
+			(timeMs - panStart) / Math.max(1, region.endMs - panStart),
+		);
+		focus = getLinearFocus(region.focus, region.focusEnd, panProgress);
+	}
+
+	if (region.focusMode === "auto" && timeMs !== undefined) {
+		const cursorFocus = cursorFocusSampler
+			? cursorFocusSampler(timeMs)
+			: cursorTelemetry && cursorTelemetry.length > 0
+				? interpolateCursorAt(cursorTelemetry, timeMs)
+				: null;
 		if (cursorFocus) {
 			focus = cursorFocus;
 		}
 	}
 
-	return clampFocusToScale(focus, zoomScale, viewportRatio);
+	return region.focusSpace === "source"
+		? focus
+		: clampFocusToScale(focus, zoomScale, viewportRatio);
 }
 
-function getConnectedRegionPairs(regions: ZoomRegion[]) {
+// Zoom edits replace the regions array and region objects instead of mutating them in place. Cache
+// the sorted pairs and both lookup directions by that immutable array identity so the 60fps path
+// never searches the pair list once per region.
+const connectedRegionIndexCache = new WeakMap<ZoomRegion[], ConnectedRegionIndex>();
+
+function getConnectedRegionIndex(regions: ZoomRegion[]) {
+	const cached = connectedRegionIndexCache.get(regions);
+	if (cached) return cached;
 	const sortedRegions = [...regions].sort((a, b) => a.startMs - b.startMs);
 	const pairs: ConnectedRegionPair[] = [];
+	const outgoingByRegion = new WeakMap<ZoomRegion, ConnectedRegionPair>();
+	const incomingByRegion = new WeakMap<ZoomRegion, ConnectedRegionPair>();
 
 	for (let index = 0; index < sortedRegions.length - 1; index += 1) {
 		const currentRegion = sortedRegions[index];
 		const nextRegion = sortedRegions[index + 1];
 		const gapMs = nextRegion.startMs - currentRegion.endMs;
 
-		if (gapMs > CHAINED_ZOOM_PAN_GAP_MS) {
+		if (
+			currentRegion.motionProfile === "professional-v2" ||
+			nextRegion.motionProfile === "professional-v2" ||
+			gapMs > CHAINED_ZOOM_PAN_GAP_MS
+		) {
 			continue;
 		}
 
-		pairs.push({
+		const pair = {
 			currentRegion,
 			nextRegion,
 			transitionStart: currentRegion.endMs,
 			transitionEnd: currentRegion.endMs + CONNECTED_ZOOM_PAN_DURATION_MS,
-		});
+		};
+		pairs.push(pair);
+		outgoingByRegion.set(currentRegion, pair);
+		incomingByRegion.set(nextRegion, pair);
 	}
 
-	return pairs;
+	const regionIndex = { pairs, outgoingByRegion, incomingByRegion };
+	connectedRegionIndexCache.set(regions, regionIndex);
+	return regionIndex;
 }
 
 function getActiveRegion(
 	regions: ZoomRegion[],
 	timeMs: number,
-	connectedPairs: ConnectedRegionPair[],
+	cursorTimeMs: number,
+	connectedIndex: ConnectedRegionIndex | null,
 	cursorTelemetry?: CursorTelemetryPoint[],
+	cursorFocusSampler?: (timeMs: number) => ZoomFocus | null,
 	viewportRatio?: ViewportRatio,
 ) {
-	const activeRegions = regions
-		.map((region) => {
-			const outgoingPair = connectedPairs.find((pair) => pair.currentRegion.id === region.id);
-			if (outgoingPair && timeMs > outgoingPair.currentRegion.endMs) {
-				return { region, strength: 0 };
-			}
+	let activeRegion: ZoomRegion | null = null;
+	let activeStrength = 0;
 
-			const incomingPair = connectedPairs.find((pair) => pair.nextRegion.id === region.id);
-			if (incomingPair && timeMs < incomingPair.transitionEnd) {
-				return { region, strength: 0 };
-			}
+	for (const region of regions) {
+		const outgoingPair = connectedIndex?.outgoingByRegion.get(region);
+		if (outgoingPair && timeMs > outgoingPair.currentRegion.endMs) continue;
 
-			return { region, strength: computeRegionStrength(region, timeMs) };
-		})
-		.filter((entry) => entry.strength > 0)
-		.sort((left, right) => {
-			if (right.strength !== left.strength) {
-				return right.strength - left.strength;
-			}
+		const incomingPair = connectedIndex?.incomingByRegion.get(region);
+		if (incomingPair && timeMs < incomingPair.transitionEnd) continue;
 
-			return right.region.startMs - left.region.startMs;
-		});
+		const strength = computeRegionStrength(region, timeMs);
+		if (strength <= 0) continue;
 
-	if (activeRegions.length === 0) {
-		return null;
+		if (
+			!activeRegion ||
+			strength > activeStrength ||
+			(strength === activeStrength && region.startMs > activeRegion.startMs)
+		) {
+			activeRegion = region;
+			activeStrength = strength;
+		}
 	}
 
-	const activeRegion = activeRegions[0].region;
+	if (!activeRegion) return null;
+
 	const activeScale = getZoomScale(activeRegion);
 
 	return {
 		region: {
 			...activeRegion,
-			focus: getResolvedFocus(activeRegion, activeScale, timeMs, cursorTelemetry, viewportRatio),
+			focus: getResolvedFocus(
+				activeRegion,
+				activeScale,
+				cursorTimeMs,
+				cursorTelemetry,
+				cursorFocusSampler,
+				viewportRatio,
+			),
 		},
-		strength: activeRegions[0].strength,
+		strength: activeStrength,
 		blendedScale: null,
 		rotation3D: getRotation3D(activeRegion),
 	};
@@ -170,8 +262,10 @@ function getActiveRegion(
 
 function getConnectedRegionHold(
 	timeMs: number,
+	cursorTimeMs: number,
 	connectedPairs: ConnectedRegionPair[],
 	cursorTelemetry?: CursorTelemetryPoint[],
+	cursorFocusSampler?: (timeMs: number) => ZoomFocus | null,
 	viewportRatio?: ViewportRatio,
 ) {
 	for (const pair of connectedPairs) {
@@ -183,8 +277,9 @@ function getConnectedRegionHold(
 					focus: getResolvedFocus(
 						pair.nextRegion,
 						nextScale,
-						timeMs,
+						cursorTimeMs,
 						cursorTelemetry,
+						cursorFocusSampler,
 						viewportRatio,
 					),
 				},
@@ -201,7 +296,9 @@ function getConnectedRegionHold(
 function getConnectedRegionTransition(
 	connectedPairs: ConnectedRegionPair[],
 	timeMs: number,
+	cursorTimeMs: number,
 	cursorTelemetry?: CursorTelemetryPoint[],
+	cursorFocusSampler?: (timeMs: number) => ZoomFocus | null,
 	viewportRatio?: ViewportRatio,
 ) {
 	for (const pair of connectedPairs) {
@@ -217,10 +314,12 @@ function getConnectedRegionTransition(
 		const currentScale = getZoomScale(currentRegion);
 		const nextScale = getZoomScale(nextRegion);
 		const transitionScale = lerp(currentScale, nextScale, transitionProgress);
-		// Both regions share the same timeMs, so interpolate cursor once and reuse.
-		const sharedCursorFocus =
-			cursorTelemetry && cursorTelemetry.length > 0
-				? interpolateCursorAt(cursorTelemetry, timeMs)
+		// Both regions share one source cursor time, so interpolate once and reuse while the
+		// transition progress itself remains timeline-driven.
+		const sharedCursorFocus = cursorFocusSampler
+			? cursorFocusSampler(cursorTimeMs)
+			: cursorTelemetry && cursorTelemetry.length > 0
+				? interpolateCursorAt(cursorTelemetry, cursorTimeMs)
 				: null;
 		const currentFocus = clampFocusToScale(
 			currentRegion.focusMode === "auto" && sharedCursorFocus
@@ -276,7 +375,10 @@ type DominantRegionResult = {
 let dominantRegionCache: {
 	regions: ZoomRegion[];
 	timeMsKey: number;
+	cursorTimeMsKey: number;
 	telemetry: CursorTelemetryPoint[] | undefined;
+	cursorFocusSampler: DominantRegionOptions["cursorFocusSampler"];
+	cursorFocusSamplerKey: unknown;
 	connectZooms: boolean;
 	viewportRatio: ViewportRatio | undefined;
 	result: DominantRegionResult;
@@ -289,33 +391,63 @@ export function findDominantRegion(
 ): DominantRegionResult {
 	const connectZooms = !!options.connectZooms;
 	const telemetry = options.cursorTelemetry;
+	const cursorFocusSampler = options.cursorFocusSampler;
+	const cursorFocusSamplerKey = options.cursorFocusSamplerKey;
 	const vr = options.viewportRatio;
 	const timeMsKey = Math.round(timeMs);
+	const cursorTimeMs = options.cursorTimeMs ?? timeMs;
+	const cursorTimeMsKey = Math.round(cursorTimeMs);
 
 	if (
 		dominantRegionCache &&
 		dominantRegionCache.regions === regions &&
 		dominantRegionCache.timeMsKey === timeMsKey &&
+		dominantRegionCache.cursorTimeMsKey === cursorTimeMsKey &&
 		dominantRegionCache.telemetry === telemetry &&
+		dominantRegionCache.cursorFocusSampler === cursorFocusSampler &&
+		dominantRegionCache.cursorFocusSamplerKey === cursorFocusSamplerKey &&
 		dominantRegionCache.connectZooms === connectZooms &&
 		dominantRegionCache.viewportRatio === vr
 	) {
 		return dominantRegionCache.result;
 	}
 
-	const connectedPairs = connectZooms ? getConnectedRegionPairs(regions) : [];
+	const connectedIndex = connectZooms ? getConnectedRegionIndex(regions) : null;
 
 	let result: DominantRegionResult;
-	if (connectZooms) {
-		const connectedTransition = getConnectedRegionTransition(connectedPairs, timeMs, telemetry, vr);
+	if (connectedIndex) {
+		const connectedPairs = connectedIndex.pairs;
+		const connectedTransition = getConnectedRegionTransition(
+			connectedPairs,
+			timeMs,
+			cursorTimeMs,
+			telemetry,
+			cursorFocusSampler,
+			vr,
+		);
 		if (connectedTransition) {
 			result = connectedTransition;
 		} else {
-			const connectedHold = getConnectedRegionHold(timeMs, connectedPairs, telemetry, vr);
+			const connectedHold = getConnectedRegionHold(
+				timeMs,
+				cursorTimeMs,
+				connectedPairs,
+				telemetry,
+				cursorFocusSampler,
+				vr,
+			);
 			if (connectedHold) {
 				result = { ...connectedHold, transition: null };
 			} else {
-				const activeRegion = getActiveRegion(regions, timeMs, connectedPairs, telemetry, vr);
+				const activeRegion = getActiveRegion(
+					regions,
+					timeMs,
+					cursorTimeMs,
+					connectedIndex,
+					telemetry,
+					cursorFocusSampler,
+					vr,
+				);
 				result = activeRegion
 					? { ...activeRegion, transition: null }
 					: {
@@ -328,7 +460,15 @@ export function findDominantRegion(
 			}
 		}
 	} else {
-		const activeRegion = getActiveRegion(regions, timeMs, connectedPairs, telemetry, vr);
+		const activeRegion = getActiveRegion(
+			regions,
+			timeMs,
+			cursorTimeMs,
+			connectedIndex,
+			telemetry,
+			cursorFocusSampler,
+			vr,
+		);
 		result = activeRegion
 			? { ...activeRegion, transition: null }
 			: {
@@ -343,7 +483,10 @@ export function findDominantRegion(
 	dominantRegionCache = {
 		regions,
 		timeMsKey,
+		cursorTimeMsKey,
 		telemetry,
+		cursorFocusSampler,
+		cursorFocusSamplerKey,
 		connectZooms,
 		viewportRatio: vr,
 		result,

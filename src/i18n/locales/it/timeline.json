@@ -5,7 +5,11 @@
 		"addTrim": "Aggiungi taglio (T)",
 		"addAnnotation": "Aggiungi annotazione (A)",
 		"addBlur": "Aggiungi sfocatura (B)",
-		"addSpeed": "Aggiungi velocità (S)"
+		"addSpeed": "Aggiungi velocità (S)",
+		"autoZoomOn": "Suggerimenti di zoom automatico attivi — clicca per rimuovere gli zoom suggeriti",
+		"autoZoomOff": "Suggerimenti di zoom automatico disattivi — clicca per suggerire zoom dal cursore",
+		"autoFocusAllOn": "Auto-Focus attivo su tutti gli zoom — clicca per passarli tutti a manuale",
+		"autoFocusAllOff": "Auto-Focus su tutti gli zoom (la camera segue il cursore)"
 	},
 	"hints": {
 		"pressZoom": "Premi Z per aggiungere zoom",
@@ -15,8 +19,6 @@
 		"pressSpeed": "Premi S per aggiungere velocità"
 	},
 	"labels": {
-		"pan": "Panoramica",
-		"zoom": "Zoom",
 		"trim": "Taglio",
 		"speed": "Velocità",
 		"zoomItem": "Zoom {{index}}",
